@@ -1,0 +1,91 @@
+sequenceDiagram
+    participant Admin as 管理员
+    participant FE as 前端 (Admin)
+    participant API as Express API
+    participant PC as PaperController
+    participant PS as PaperService
+    participant DB as SQLite
+
+    Admin->>FE: 上传 Excel/Word 文件
+    FE->>FE: 表单验证（文件类型/大小）
+    FE->>API: POST /api/admin/papers (multipart/form-data)
+    API->>PC: paperController.upload()
+    PC->>PS: paperService.parseAndSave(file, metadata)
+    
+    alt .xlsx 文件
+        PS->>PS: xlsx.readFile(buffer)
+        PS->>PS: sheet_to_json(sheet)
+        PS->>PS: detectQuestionType(row)
+        Note over PS: 识别规则：<br/>A/B/C/D 选项 → choice<br/>无选项 → fill<br/>长文本 → essay
+    else .docx 文件
+        PS->>PS: mammoth.extractRawText({buffer})
+        PS->>PS: mammoth.convertToHtml({buffer})
+        PS->>PS: parseHTMLQuestions(html)
+        Note over PS: HTML 结构解析题目
+    end
+    
+    PS->>DB: BEGIN TRANSACTION
+    PS->>DB: INSERT INTO paper (...)
+    loop 每道题目
+        PS->>DB: INSERT INTO question (paper_id, type, content, options, correct_answer, score, order_num)
+    end
+    PS->>DB: COMMIT
+    
+    PS-->>PC: { paperId, questionCount, totalScore }
+    PC-->>FE: { code: 0, data: { id, title, questionCount } }
+    FE-->>Admin: 上传成功，显示题目预览
+
+---
+
+sequenceDiagram
+    participant Student as 考生
+    participant FE as 前端 (Exam)
+    participant API as Express API
+    participant EC as ExamController
+    participant ES as ExamService
+    participant DB as SQLite
+
+    Student->>FE: 登录（姓名+年级+手机号）
+    FE->>API: POST /api/student/login
+    API->>DB: SELECT student WHERE name=? AND grade=? AND phone=?
+    alt 匹配失败
+        API-->>FE: { code: 2001, message: "信息不匹配" }
+        FE-->>Student: 提示登录失败
+    else 匹配成功
+        API->>API: 生成 sessionId，写入 cookie
+        API-->>FE: { code: 0, data: { sessionId } }
+        FE-->>Student: 进入试卷列表
+    end
+
+    Student->>FE: 选择试卷，点击"开始考试"
+    FE->>API: POST /api/student/exams/start
+    API->>DB: INSERT exam_record (assignment_id, status, started_at)
+    API-->>FE: { examRecordId, questions (无答案) }
+    FE-->>Student: 显示答题页
+
+    loop 每道题作答
+        Student->>FE: 选择/填写答案
+        FE->>FE: 保存到本地状态
+    end
+
+    Student->>FE: 点击"提交"
+    FE->>FE: 本地校验未答题目，弹出确认
+    FE->>API: PUT /api/student/exams/:id { answers, action: "submit" }
+    API->>EC: examController.submit()
+    EC->>ES: examService.grade(answers, paperId)
+    
+    loop 每道题判分
+        ES->>ES: normalize(answer) = trim(lowerCase())
+        alt 选择题/填空题
+            ES->>ES: if normalized === normalized(correct) → score = full
+            ES->>ES: else → score = 0
+        else 简答题
+            ES->>ES: score = question.score (本期全部满分)
+        end
+    end
+    
+    ES->>DB: UPDATE exam_record SET answers=?, score=?, status='submitted', submitted_at=?
+    ES->>DB: UPDATE assignment SET status='completed'
+    ES-->>EC: { totalScore, status }
+    EC-->>FE: { code: 0, data: { score, totalScore } }
+    FE-->>Student: 显示结果页

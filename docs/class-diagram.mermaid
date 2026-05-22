@@ -1,0 +1,119 @@
+classDiagram
+    class AdminModel {
+        +number id
+        +string email
+        +string passwordHash
+        +string name
+        +string role
+        +Date createdAt
+        +create(data) Admin
+        +findByEmail(email) Admin
+        +findById(id) Admin
+        +verifyPassword(password) boolean
+    }
+
+    class StudentModel {
+        +number id
+        +string name
+        +string phone
+        +string grade
+        +Date createdAt
+        +create(data) Student
+        +findAll(filters) Student[]
+        +findById(id) Student
+        +findByNameGradePhone(name, grade, phone) Student
+        +update(id, data) void
+        +delete(id) void
+        +batchImport(records) ImportResult
+    }
+
+    class PaperModel {
+        +number id
+        +string title
+        +string grade
+        +string subject
+        +number totalScore
+        +number totalTime
+        +number createdBy
+        +Date createdAt
+        +create(data) Paper
+        +findAll(filters) Paper[]
+        +findById(id) Paper
+        +delete(id) void
+    }
+
+    class QuestionModel {
+        +number id
+        +number paperId
+        +string type
+        +string content
+        +QuestionOption[] options
+        +string correctAnswer
+        +number score
+        +number orderNum
+        +create(data) Question
+        +findByPaperId(paperId) Question[]
+    }
+
+    class AssignmentModel {
+        +number id
+        +number studentId
+        +number paperId
+        +string status
+        +Date assignedAt
+        +create(data) Assignment
+        +findAll(filters) Assignment[]
+        +assignPaperToStudents(paperId, studentIds) Assignment[]
+        +updateStatus(id, status) void
+    }
+
+    class ExamRecordModel {
+        +number id
+        +number assignmentId
+        +string answers
+        +number score
+        +string status
+        +Date startedAt
+        +Date submittedAt
+        +create(data) ExamRecord
+        +findById(id) ExamRecord
+        +findByFilters(filters) ExamRecord[]
+        +submit(id, answers, score) void
+        +updateAnswers(id, answers) void
+    }
+
+    class PaperService {
+        +parseExcel(buffer) ParsedQuestion[]
+        +parseWord(buffer) ParsedQuestion[]
+        +detectQuestionType(row) QuestionType
+        +savePaper(paperData, questions) Paper
+        +buildQuestionOptions(raw) QuestionOption[]
+    }
+
+    class ExamService {
+        +normalizeAnswer(answer) string
+        +gradeAnswers(answers, questions) GradingResult
+        +gradeQuestion(answer, question) number
+    }
+
+    class ExportService {
+        +generateExamReport(record, student, paper, questions, answers) Buffer
+        +buildDocxDocument(data) Document
+    }
+
+    class AuthMiddleware {
+        +verifyJWT(req, res, next) void
+        +attachUser(req) void
+    }
+
+    class RoleGuard {
+        +checkRole(...roles) Middleware
+    }
+
+    AdminModel ..> QuestionModel : creates paper
+    PaperModel "1" o-- "N" QuestionModel : contains
+    StudentModel "1" o-- "N" AssignmentModel : receives
+    PaperModel "1" o-- "N" AssignmentModel : assigned_to
+    AssignmentModel "1" o-- "1" ExamRecordModel : generates
+    ExamService ..> QuestionModel : grades
+    ExportService ..> ExamRecordModel : exports
