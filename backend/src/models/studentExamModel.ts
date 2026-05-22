@@ -1,0 +1,124 @@
+import { getDb, saveDatabase } from './db'
+
+export interface StudentExam {
+  id: number
+  student_id: number
+  subject: string
+  questions_json: string | null
+  answers_json: string | null
+  score: number | null
+  full_score: number
+  status: 'pending' | 'in_progress' | 'submitted'
+  started_at: string | null
+  submitted_at: string | null
+}
+
+function toObjects<T>(result: { columns: string[]; values: unknown[][] }[]): T[] {
+  if (!result || result.length === 0) return []
+  const { columns, values } = result[0]
+  return values.map(row => {
+    const obj: Record<string, unknown> = {}
+    columns.forEach((col, i) => { obj[col] = row[i] })
+    return obj as T
+  })
+}
+
+export const studentExamModel = {
+  /**
+   * 创建考试记录
+   */
+  create(
+    studentId: number,
+    subject: string,
+    questionsJson: string,
+    fullScore: number = 100
+  ): StudentExam {
+    const db = getDb()
+    const now = new Date().toISOString()
+    db.run(
+      `INSERT INTO student_exam (student_id, subject, questions_json, full_score, status, started_at)
+       VALUES (?, ?, ?, ?, 'in_progress', ?)`,
+      [studentId, subject, questionsJson, fullScore, now]
+    )
+    const lastId = db.exec('SELECT last_insert_rowid() as id')[0].values[0][0] as number
+    saveDatabase()
+    const result = db.exec('SELECT * FROM student_exam WHERE id = ?', [lastId])
+    return toObjects<StudentExam>(result)[0]
+  },
+
+  /**
+   * 根据学生ID和科目查找考试
+   */
+  findByStudentAndSubject(studentId: number, subject: string): StudentExam | null {
+    const db = getDb()
+    const result = db.exec(
+      'SELECT * FROM student_exam WHERE student_id = ? AND subject = ?',
+      [studentId, subject]
+    )
+    return toObjects<StudentExam>(result)[0] ?? null
+  },
+
+  /**
+   * 根据ID查找考试
+   */
+  findById(id: number): StudentExam | null {
+    const db = getDb()
+    const result = db.exec('SELECT * FROM student_exam WHERE id = ?', [id])
+    return toObjects<StudentExam>(result)[0] ?? null
+  },
+
+  /**
+   * 查找学生所有考试
+   */
+  findByStudentId(studentId: number): StudentExam[] {
+    const db = getDb()
+    const result = db.exec(
+      'SELECT * FROM student_exam WHERE student_id = ? ORDER BY submitted_at DESC',
+      [studentId]
+    )
+    return toObjects<StudentExam>(result)
+  },
+
+  /**
+   * 提交考试（判分+提交）
+   */
+  submit(id: number, answersJson: string, score: number): boolean {
+    const db = getDb()
+    const now = new Date().toISOString()
+    db.run(
+      `UPDATE student_exam SET answers_json = ?, score = ?, status = 'submitted', submitted_at = ? WHERE id = ?`,
+      [answersJson, score, now, id]
+    )
+    saveDatabase()
+    return true
+  },
+
+  /**
+   * 管理端查考试结果
+   */
+  findResults(params: {
+    subject?: string
+    studentId?: number
+    page?: number
+    pageSize?: number
+  }): { list: StudentExam[]; total: number } {
+    const db = getDb()
+    const page = params.page ?? 1
+    const pageSize = params.pageSize ?? 50
+    const offset = (page - 1) * pageSize
+
+    let where = "WHERE status = 'submitted'"
+    const values: (string | number)[] = []
+    if (params.subject) { where += ' AND subject = ?'; values.push(params.subject) }
+    if (params.studentId !== undefined) { where += ' AND student_id = ?'; values.push(params.studentId) }
+
+    const countResult = db.exec(`SELECT COUNT(*) as total FROM student_exam ${where}`, values)
+    const total = (countResult[0]?.values[0]?.[0] as number) ?? 0
+
+    const listResult = db.exec(
+      `SELECT * FROM student_exam ${where} ORDER BY submitted_at DESC LIMIT ? OFFSET ?`,
+      [...values, pageSize, offset]
+    )
+    return { list: toObjects<StudentExam>(listResult), total }
+  },
+}

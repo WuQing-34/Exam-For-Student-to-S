@@ -156,6 +156,57 @@ export async function initDatabase(): Promise<Database> {
     // 列可能已存在
   }
 
+  // v2.0 迁移：题库 + 学生自主注册
+  try {
+    db.run(`
+      CREATE TABLE IF NOT EXISTS question_bank (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        subject        TEXT    NOT NULL,
+        type           TEXT    NOT NULL,
+        content        TEXT    NOT NULL,
+        options        TEXT,
+        correct_answer TEXT    NOT NULL,
+        created_by     INTEGER REFERENCES admin(id),
+        created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+    `)
+  } catch (e) { /* 表可能已存在 */ }
+
+  try {
+    db.run(`
+      CREATE TABLE IF NOT EXISTS student_exam (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        student_id      INTEGER NOT NULL REFERENCES student(id),
+        subject         TEXT    NOT NULL,
+        questions_json  TEXT,
+        answers_json    TEXT,
+        score           INTEGER,
+        full_score      INTEGER DEFAULT 100,
+        status          TEXT    DEFAULT 'pending',
+        started_at      DATETIME,
+        submitted_at    DATETIME,
+        UNIQUE(student_id, subject)
+      );
+    `)
+  } catch (e) { /* 表可能已存在 */ }
+
+  try {
+    db.run(`ALTER TABLE student ADD COLUMN subjects TEXT;`)
+  } catch (e) { /* 列可能已存在 */ }
+
+  try {
+    db.run(`ALTER TABLE student ADD COLUMN sales_id INTEGER;`)
+  } catch (e) { /* 列可能已存在 */ }
+
+  // v2.1 迁移：短期班辅导增加中心和战队字段
+  try {
+    db.run(`ALTER TABLE admin ADD COLUMN center TEXT;`)
+  } catch (e) { /* 列可能已存在 */ }
+
+  try {
+    db.run(`ALTER TABLE admin ADD COLUMN team TEXT;`)
+  } catch (e) { /* 列可能已存在 */ }
+
   // 创建索引
   db.run(`
     CREATE INDEX IF NOT EXISTS idx_student_grade ON student(grade);
@@ -166,12 +217,17 @@ export async function initDatabase(): Promise<Database> {
     CREATE INDEX IF NOT EXISTS idx_section_paper ON subject_section(paper_id);
     CREATE INDEX IF NOT EXISTS idx_assignment_student ON assignment(student_id);
     CREATE INDEX IF NOT EXISTS idx_exam_assignment ON exam_record(assignment_id);
+    CREATE INDEX IF NOT EXISTS idx_question_bank_subject ON question_bank(subject);
+    CREATE INDEX IF NOT EXISTS idx_question_bank_type ON question_bank(type);
+    CREATE INDEX IF NOT EXISTS idx_student_exam_student ON student_exam(student_id);
+    CREATE INDEX IF NOT EXISTS idx_student_exam_subject ON student_exam(subject);
+    CREATE INDEX IF NOT EXISTS idx_student_sales ON student(sales_id);
   `)
 
   // 持久化到磁盘
   saveDatabase()
 
-  console.log('✅ 数据库初始化完成 (v1.1)')
+  console.log('✅ 数据库初始化完成 (v2.0)')
   return db
 }
 

@@ -8,7 +8,7 @@ interface AuthState {
   user: Omit<AdminUser, 'phone'> | null
   isLoading: boolean
   login: (email: string, password: string) => Promise<void>
-  register: (data: { email: string; password: string; name: string; role: 'admin' | 'tutor' }) => Promise<void>
+  register: (data: { email: string; password: string; name: string; role: 'admin' | 'short_term_tutor' }) => Promise<void>
   logout: () => void
   fetchMe: () => Promise<void>
 }

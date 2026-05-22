@@ -3,7 +3,7 @@
  */
 
 // ========== 枚举值 ==========
-export type AdminRole = 'admin' | 'tutor'
+export type AdminRole = 'admin' | 'short_term_tutor'
 
 // v1.1: 年级枚举迁移 G1/G2/G3 → junior1/junior2/junior3
 export type Grade = 'junior1' | 'junior2' | 'junior3'

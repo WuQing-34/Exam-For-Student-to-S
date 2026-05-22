@@ -5,6 +5,8 @@ export interface Student {
   name: string
   phone: string
   grade: string
+  subjects?: string
+  sales_id?: number
   created_at: string
 }
 
@@ -20,13 +22,13 @@ function toObjects<T>(result: { columns: string[]; values: unknown[][] }[]): T[]
 
 export const userModel = {
   /**
-   * 创建考生
+   * 创建考生（v2.0: 支持 subjects + sales_id）
    */
-  create(data: { name: string; phone: string; grade: string }): number {
+  create(data: { name: string; phone: string; grade: string; subjects?: string; sales_id?: number }): number {
     const db = getDb()
     db.run(
-      'INSERT INTO student (name, phone, grade) VALUES (?, ?, ?)',
-      [data.name, data.phone, data.grade]
+      'INSERT INTO student (name, phone, grade, subjects, sales_id) VALUES (?, ?, ?, ?, ?)',
+      [data.name, data.phone, data.grade, data.subjects ?? null, data.sales_id ?? null]
     )
     const lastId = db.exec('SELECT last_insert_rowid() as id')[0].values[0][0] as number
     saveDatabase()
@@ -34,13 +36,13 @@ export const userModel = {
   },
 
   /**
-   * 根据姓名+年级+手机号查找考生
+   * 根据姓名+手机号查找考生（v2.0: 去掉 grade 唯一约束）
    */
-  findByNameGradePhone(name: string, grade: string, phone: string): Student | null {
+  findByNamePhone(name: string, phone: string): Student | null {
     const db = getDb()
     const result = db.exec(
-      'SELECT * FROM student WHERE name = ? AND grade = ? AND phone = ?',
-      [name, grade, phone]
+      'SELECT * FROM student WHERE name = ? AND phone = ?',
+      [name, phone]
     )
     const list = toObjects<Student>(result)
     return list[0] ?? null
@@ -52,6 +54,7 @@ export const userModel = {
   findAll(params: {
     grade?: string
     keyword?: string
+    salesId?: number
     page?: number
     pageSize?: number
   }): { list: Student[]; total: number } {
@@ -64,6 +67,7 @@ export const userModel = {
     const values: (string | number)[] = []
 
     if (params.grade) { where += ' AND grade = ?'; values.push(params.grade) }
+    if (params.salesId !== undefined) { where += ' AND sales_id = ?'; values.push(params.salesId) }
     if (params.keyword) {
       where += ' AND (name LIKE ? OR phone LIKE ?)'
       values.push(`%${params.keyword}%`, `%${params.keyword}%`)
@@ -92,9 +96,28 @@ export const userModel = {
   },
 
   /**
-   * 更新考生信息
+   * 根据销售ID查找学生
    */
-  update(id: number, data: { name?: string; phone?: string; grade?: string }): boolean {
+  findBySalesId(salesId: number, params?: { page?: number; pageSize?: number }): { list: Student[]; total: number } {
+    const db = getDb()
+    const page = params?.page ?? 1
+    const pageSize = params?.pageSize ?? 50
+    const offset = (page - 1) * pageSize
+
+    const countResult = db.exec('SELECT COUNT(*) as total FROM student WHERE sales_id = ?', [salesId])
+    const total = (countResult[0]?.values[0]?.[0] as number) ?? 0
+
+    const listResult = db.exec(
+      'SELECT * FROM student WHERE sales_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?',
+      [salesId, pageSize, offset]
+    )
+    return { list: toObjects<Student>(listResult), total }
+  },
+
+  /**
+   * 更新考生信息（v2.0: 支持 subjects + sales_id）
+   */
+  update(id: number, data: { name?: string; phone?: string; grade?: string; subjects?: string; sales_id?: number }): boolean {
     const db = getDb()
     const fields: string[] = []
     const values: (string | number)[] = []
@@ -102,6 +125,8 @@ export const userModel = {
     if (data.name !== undefined) { fields.push('name = ?'); values.push(data.name) }
     if (data.phone !== undefined) { fields.push('phone = ?'); values.push(data.phone) }
     if (data.grade !== undefined) { fields.push('grade = ?'); values.push(data.grade) }
+    if (data.subjects !== undefined) { fields.push('subjects = ?'); values.push(data.subjects) }
+    if (data.sales_id !== undefined) { fields.push('sales_id = ?'); values.push(data.sales_id) }
 
     if (fields.length === 0) return false
 
@@ -125,7 +150,7 @@ export const userModel = {
    * 批量导入考生（返回成功导入的ID列表）
    */
   batchImport(
-    records: Array<{ name: string; phone: string; grade: string }>
+    records: Array<{ name: string; phone: string; grade: string; subjects?: string; sales_id?: number }>
   ): { success: number; failed: number; errors: string[]; ids: number[] } {
     const errors: string[] = []
     const ids: number[] = []
@@ -133,9 +158,9 @@ export const userModel = {
 
     for (const record of records) {
       try {
-        const exist = userModel.findByNameGradePhone(record.name, record.grade, record.phone)
+        const exist = userModel.findByNamePhone(record.name, record.phone)
         if (exist) {
-          errors.push(`重复：${record.name} ${record.grade} ${record.phone}`)
+          errors.push(`重复：${record.name} ${record.phone}`)
           continue
         }
         const id = userModel.create(record)

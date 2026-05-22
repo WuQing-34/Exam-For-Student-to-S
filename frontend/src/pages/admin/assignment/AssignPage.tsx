@@ -24,6 +24,7 @@ import { assignmentApi } from '../../../api/assignment'
 import { paperApi } from '../../../api/paper'
 import { userApi } from '../../../api/user'
 import { ALL_GRADE_MAP } from '../../../types'
+import { maskPhone } from '../../../utils/formatters'
 
 export function AssignPage() {
   const [students, setStudents] = useState<any[]>([])
@@ -124,7 +125,7 @@ export function AssignPage() {
                       </ListItemIcon>
                       <ListItemText
                         primary={s.name}
-                        secondary={`${ALL_GRADE_MAP[s.grade] || s.grade} | ${s.phone}`}
+                        secondary={`${ALL_GRADE_MAP[s.grade] || s.grade} | ${maskPhone(s.phone)}`}
                       />
                     </ListItem>
                   ))}

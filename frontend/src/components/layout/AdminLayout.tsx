@@ -21,10 +21,11 @@ import MenuIcon from '@mui/icons-material/Menu'
 import CloseIcon from '@mui/icons-material/Close'
 import ArticleIcon from '@mui/icons-material/Article'
 import PeopleIcon from '@mui/icons-material/People'
-import AssignmentIcon from '@mui/icons-material/Assignment'
 import AssessmentIcon from '@mui/icons-material/Assessment'
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
 import LockIcon from '@mui/icons-material/Lock'
+import LibraryBooksIcon from '@mui/icons-material/LibraryBooks'
+import GroupAddIcon from '@mui/icons-material/GroupAdd'
 import { useAuthStore } from '../../store/authStore'
 
 const DRAWER_WIDTH = 240
@@ -41,11 +42,12 @@ export function AdminLayout() {
 
   const menuItems = [
     { label: '首页', path: '/admin/dashboard', icon: <AssessmentIcon /> },
+    ...(isAdmin ? [{ label: '题库管理', path: '/admin/question-bank', icon: <LibraryBooksIcon /> }] : []),
     ...(isAdmin ? [{ label: '试卷管理', path: '/admin/papers', icon: <ArticleIcon /> }] : []),
-    { label: '用户管理', path: '/admin/users', icon: <PeopleIcon /> },
-    { label: '分配试卷', path: '/admin/assign', icon: <AssignmentIcon /> },
+    { label: '我的学生', path: '/admin/users', icon: <PeopleIcon /> },
     { label: '考试数据', path: '/admin/exams', icon: <AssessmentIcon /> },
     ...(isAdmin ? [{ label: '管理员管理', path: '/admin/admins', icon: <AdminPanelSettingsIcon /> }] : []),
+    ...(isAdmin ? [{ label: '辅导导入', path: '/admin/tutor-import', icon: <GroupAddIcon /> }] : []),
   ]
 
   const handleLogout = () => {

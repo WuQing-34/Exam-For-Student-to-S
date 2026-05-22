@@ -9,7 +9,7 @@ export interface AdminUser {
   id: number
   email: string
   name: string
-  role: 'admin' | 'tutor'
+  role: 'admin' | 'short_term_tutor'
   created_at?: string
 }
 
@@ -19,5 +19,7 @@ export interface Student {
   name: string
   phone: string
   grade: Grade
+  subjects?: string
+  sales_id?: number
   created_at: string
 }

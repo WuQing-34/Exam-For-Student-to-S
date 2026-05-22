@@ -9,7 +9,7 @@ export interface LoginResult {
 
 export const authApi = {
   /** 注册 */
-  register(data: { email: string; password: string; name: string; role: 'admin' | 'tutor' }) {
+  register(data: { email: string; password: string; name: string; role: 'admin' | 'short_term_tutor' }) {
     return api.post<ApiResponse<Omit<AdminUser, 'phone'>>>('/admin/auth/register', data)
   },
 

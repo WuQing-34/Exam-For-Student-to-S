@@ -12,7 +12,7 @@ declare global {
       admin?: {
         id: number
         email: string
-        role: 'admin' | 'tutor'
+        role: 'admin' | 'short_term_tutor'
       }
       studentSession?: {
         studentId: number
@@ -48,7 +48,7 @@ export function verifyJWT(req: Request, res: Response, next: NextFunction): void
     req.admin = {
       id: payload.sub,
       email: payload.email,
-      role: payload.role,
+      role: payload.role === 'tutor' ? 'short_term_tutor' : (payload.role as 'admin' | 'short_term_tutor'),
     }
 
     next()

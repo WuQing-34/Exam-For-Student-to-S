@@ -2,6 +2,8 @@ import { Router } from 'express'
 import { authService } from '../../services/authService'
 import { apiResponse, errorResponse } from '../../utils/helpers'
 import { verifyJWT } from '../../middlewares/auth'
+import { upload } from '../../middlewares/upload'
+import * as XLSX from 'xlsx'
 
 const router = Router()
 
@@ -20,12 +22,12 @@ router.post('/register', async (req, res) => {
       res.status(400).json(errorResponse(1000, '密码必须同时包含字母和数字，8位以上'))
       return
     }
-    // 注册接口仅允许创建 tutor 角色；admin 角色需由已登录的 admin 创建
-    if (role !== 'tutor' && role !== 'admin') {
+    // 注册接口仅允许创建 short_term_tutor 角色；admin 角色需由已登录的 admin 创建
+    if (role !== 'short_term_tutor' && role !== 'admin') {
       res.status(400).json(errorResponse(1000, '无效的角色'))
       return
     }
-    // 仅 tutor 角色允许公开注册，admin 角色需通过管理员创建
+    // 仅 short_term_tutor 角色允许公开注册，admin 角色需通过管理员创建
     if (role === 'admin') {
       res.status(403).json(errorResponse(1002, '管理员账户需由已有管理员创建'))
       return
@@ -159,6 +161,56 @@ router.get('/admins', verifyJWT, (req, res) => {
   } catch (e: unknown) {
     const err = e as Error
     res.status(500).json(errorResponse(1000, err.message))
+  }
+})
+
+/**
+ * POST /api/admin/auth/batch-import-tutors
+ * 批量导入短期班辅导名单（仅 admin 角色可操作）v2.1
+ * Excel 列：中心, 战队, 姓名, 邮箱前缀
+ */
+router.post('/batch-import-tutors', verifyJWT, upload.single('file'), async (req, res) => {
+  try {
+    const admin = req.admin
+    if (!admin || admin.role !== 'admin') {
+      res.status(403).json(errorResponse(1002, '仅管理员可操作'))
+      return
+    }
+
+    if (!req.file) {
+      res.status(400).json(errorResponse(5002, '请上传文件'))
+      return
+    }
+
+    const workbook = XLSX.readFile(req.file.path)
+    const sheetName = workbook.SheetNames[0]
+    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets[sheetName]) as unknown[]
+
+    // 列名中英文兼容
+    const records = (rows as Record<string, unknown>[])
+      .map((row) => ({
+        center: String(row['中心'] ?? row['center'] ?? '').trim(),
+        team: String(row['战队'] ?? row['team'] ?? '').trim(),
+        name: String(row['姓名'] ?? row['name'] ?? '').trim(),
+        email: String(row['邮箱前缀'] ?? row['email'] ?? '').trim(),
+      }))
+      .filter(r => r.name && r.email)
+
+    if (records.length === 0) {
+      res.status(400).json(errorResponse(1000, '未解析到有效数据，请检查 Excel 列名（中心/战队/姓名/邮箱前缀）'))
+      return
+    }
+
+    const result = await authService.batchImportTutors(records)
+
+    res.json(apiResponse({
+      success: result.success,
+      failed: result.failed,
+      errors: result.errors,
+    }, `导入完成：成功 ${result.success} 条，失败 ${result.failed} 条`))
+  } catch (e: unknown) {
+    const err = e as Error
+    res.status(400).json(errorResponse(5001, err.message))
   }
 })
 

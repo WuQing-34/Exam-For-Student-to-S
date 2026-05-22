@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import {
   Box,
   Card,
@@ -7,8 +7,6 @@ import {
   Button,
   Typography,
   Alert,
-  MenuItem,
-  Select,
   InputAdornment,
   Fade,
   FormControlLabel,
@@ -17,48 +15,42 @@ import {
 import SchoolIcon from '@mui/icons-material/School'
 import PersonIcon from '@mui/icons-material/Person'
 import PhoneIcon from '@mui/icons-material/Phone'
-import GradeIcon from '@mui/icons-material/Grade'
 import { studentExamApi } from '../../api/exam'
 import { useStudentStore } from '../../store/studentStore'
-import { GRADE_MAP } from '../../types'
 
 const REMEMBER_KEY = 'exam_remember'
 
 interface RememberData {
   name: string
-  grade: string
   phone: string
 }
 
 export function LoginPage() {
   const navigate = useNavigate()
   const { login } = useStudentStore()
-  const [form, setForm] = useState({ name: '', grade: '', phone: '' })
+  const [form, setForm] = useState({ name: '', phone: '' })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [rememberMe, setRememberMe] = useState(false)
 
-  // 页面加载时恢复「记住我」的数据
   useEffect(() => {
     try {
       const stored = localStorage.getItem(REMEMBER_KEY)
       if (stored) {
         const data: RememberData = JSON.parse(stored)
-        if (data.name && data.grade && data.phone) {
-          setForm({ name: data.name, grade: data.grade, phone: data.phone })
+        if (data.name && data.phone) {
+          setForm({ name: data.name, phone: data.phone })
           setRememberMe(true)
         }
       }
-    } catch {
-      // 数据损坏时忽略
-    }
+    } catch { /* ignore */ }
   }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
-    if (!form.name || !form.grade || !form.phone) {
-      setError('请填写完整信息')
+    if (!form.name || !form.phone) {
+      setError('请输入微信昵称和手机号')
       return
     }
 
@@ -66,15 +58,14 @@ export function LoginPage() {
     try {
       const res = await studentExamApi.login(form)
       const d = res.data
-      if (d.code === 0) {
-        // 记住我逻辑
+      if (d.code === 0 && d.data) {
         if (rememberMe) {
-          localStorage.setItem(REMEMBER_KEY, JSON.stringify({ name: form.name, grade: form.grade, phone: form.phone }))
+          localStorage.setItem(REMEMBER_KEY, JSON.stringify({ name: form.name, phone: form.phone }))
         } else {
           localStorage.removeItem(REMEMBER_KEY)
         }
-        login(form.name, form.grade)
-        navigate('/exams')
+        login(d.data.studentId, d.data.name, d.data.grade, d.data.subjects)
+        navigate('/subjects')
       } else {
         setError(d.message)
       }
@@ -110,7 +101,6 @@ export function LoginPage() {
             flexDirection: 'column',
           }}
         >
-          {/* 顶部装饰 */}
           <Box
             sx={{
               background: 'linear-gradient(135deg, #1976d2 0%, #7c4dff 100%)',
@@ -155,7 +145,7 @@ export function LoginPage() {
                 sx={{ mb: 2.5 }}
                 value={form.name}
                 onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                placeholder="请输入孩子姓名"
+                placeholder="请输入微信昵称"
                 InputProps={{
                   startAdornment: (
                     <InputAdornment position="start">
@@ -164,33 +154,6 @@ export function LoginPage() {
                   ),
                 }}
               />
-              <Select
-                fullWidth
-                sx={{
-                  mb: 2.5,
-                  '.MuiSelect-select': {
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 1,
-                    py: 1.5,
-                  },
-                }}
-                value={form.grade}
-                onChange={e => setForm(f => ({ ...f, grade: e.target.value as string }))}
-                displayEmpty
-                startAdornment={
-                  <InputAdornment position="start">
-                    <GradeIcon sx={{ color: '#a0aec0', fontSize: 20 }} />
-                  </InputAdornment>
-                }
-              >
-                <MenuItem value="" disabled>
-                  <span style={{ color: '#a0aec0' }}>请选择年级</span>
-                </MenuItem>
-                {Object.entries(GRADE_MAP).map(([k, v]) => (
-                  <MenuItem key={k} value={k}>{v}</MenuItem>
-                ))}
-              </Select>
               <TextField
                 fullWidth
                 sx={{ mb: 2 }}
@@ -206,24 +169,16 @@ export function LoginPage() {
                 }}
               />
 
-              {/* 记住我 */}
               <FormControlLabel
                 control={
                   <Checkbox
                     checked={rememberMe}
                     onChange={e => setRememberMe(e.target.checked)}
                     size="small"
-                    sx={{
-                      color: '#a0aec0',
-                      '&.Mui-checked': { color: '#1976d2' },
-                    }}
+                    sx={{ color: '#a0aec0', '&.Mui-checked': { color: '#1976d2' } }}
                   />
                 }
-                label={
-                  <Typography variant="body2" color="#718096">
-                    记住我
-                  </Typography>
-                }
+                label={<Typography variant="body2" color="#718096">记住我</Typography>}
                 sx={{ mb: 2, ml: -0.5 }}
               />
 
@@ -245,15 +200,20 @@ export function LoginPage() {
                     background: 'linear-gradient(135deg, #1565c0 0%, #651fff 100%)',
                     boxShadow: '0 6px 20px rgba(25, 118, 210, 0.5)',
                   },
-                  '&:disabled': {
-                    background: '#a0aec0',
-                    boxShadow: 'none',
-                  },
                 }}
               >
                 {loading ? '登录中...' : '进入考试'}
               </Button>
             </form>
+
+            <Box textAlign="center" mt={2}>
+              <Typography variant="body2" color="#718096">
+                还没有账号？{' '}
+                <Link to="/register" style={{ color: '#1976d2', textDecoration: 'none', fontWeight: 600 }}>
+                  立即注册
+                </Link>
+              </Typography>
+            </Box>
           </Box>
         </Card>
       </Fade>

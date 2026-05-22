@@ -1,678 +1,221 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useState, useEffect, useCallback } from 'react'
+import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import {
-  Box,
-  Typography,
-  Paper,
-  Radio,
-  RadioGroup,
-  FormControlLabel,
-  TextField,
-  Button,
-  Alert,
-  CircularProgress,
-  Chip,
-  LinearProgress,
+  Box, Typography, Button, Radio, RadioGroup, FormControlLabel,
+  FormControl, TextField, LinearProgress, CircularProgress,
+  Dialog, DialogTitle, DialogContent, DialogActions, Alert, Card, Paper,
 } from '@mui/material'
-import ArrowBackIcon from '@mui/icons-material/ArrowBack'
-import ArrowForwardIcon from '@mui/icons-material/ArrowForward'
 import SendIcon from '@mui/icons-material/Send'
-import QuizIcon from '@mui/icons-material/Quiz'
 import { studentExamApi } from '../../api/exam'
-import { useExamStore } from '../../store/examStore'
-import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
-import { QuestionContent } from '../../components/ui/QuestionContent'
-import { QuestionNav } from './QuestionNav'
-
-// 科目中文映射
-const SUBJECT_DISPLAY: Record<string, string> = {
-  chinese: '语文',
-  math: '数学',
-  english: '英语',
-  physics: '物理',
-  chemistry: '化学',
-}
-
-const TYPE_DISPLAY: Record<string, { label: string; color: string; bg: string }> = {
-  choice: { label: '选择题', color: '#2b6cb0', bg: '#ebf8ff' },
-  fill: { label: '填空题', color: '#2f855a', bg: '#f0fff4' },
-  essay: { label: '简答题', color: '#9b2c2c', bg: '#fff5f5' },
-}
-
-/** 自动保存间隔：30秒 */
-const AUTO_SAVE_INTERVAL_MS = 30_000
+import { SUBJECT_MAP } from '../../types'
 
 interface Question {
   id: number
   type: string
   content: string
   options: Array<{ label: string; text: string }> | null
-  score: number
-  order_num: number
-  subject?: string
-}
-
-interface SubjectGroup {
-  subject: string
-  subjectName: string
-  questions: Question[]
-  startIndex: number
 }
 
 export function ExamPage() {
-  const { id } = useParams<{ id: string }>()
+  const { subject } = useParams<{ subject: string }>()
+  const location = useLocation()
   const navigate = useNavigate()
-  const assignmentId = parseInt(id || '0')
+  const stateExamId = (location.state as { examId?: number })?.examId
 
-  const {
-    currentIndex,
-    answers,
-    examRecordId,
-    setQuestions,
-    setCurrentIndex,
-    setAnswer,
-    getAnswer,
-    setExamRecord,
-    getUnansweredCount,
-  } = useExamStore()
-
-  const [questions, setLocalQuestions] = useState<Question[]>([])
+  const examId = stateExamId ?? null
+  const [questions, setQuestions] = useState<Question[]>([])
+  const [answers, setAnswers] = useState<Array<{ questionId: number; answer: string }>>([])
   const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
-  const [submitConfirmOpen, setSubmitConfirmOpen] = useState(false)
-  const [grading, setGrading] = useState(false)
-  const autoSaveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [loadedExamId, setLoadedExamId] = useState<number | null>(null)
 
-  // 按科目分组
-  const subjectGroups = useMemo<SubjectGroup[]>(() => {
-    const groups: SubjectGroup[] = []
-    let currentSubject: string | null = null
-    let currentGroup: SubjectGroup | null = null
-    let flatIndex = 0
+  const subjectName = SUBJECT_MAP[subject as keyof typeof SUBJECT_MAP] || subject || ''
 
-    for (const q of questions) {
-      const subject = q.subject || ''
-      if (subject !== currentSubject) {
-        currentSubject = subject
-        currentGroup = {
-          subject,
-          subjectName: SUBJECT_DISPLAY[subject] || subject,
-          questions: [],
-          startIndex: flatIndex,
-        }
-        groups.push(currentGroup)
-      }
-      currentGroup!.questions.push(q)
-      flatIndex++
-    }
-
-    return groups
-  }, [questions])
-
-  const currentGroupIndex = useMemo(() => {
-    for (let i = 0; i < subjectGroups.length; i++) {
-      const g = subjectGroups[i]
-      if (currentIndex >= g.startIndex && currentIndex < g.startIndex + g.questions.length) {
-        return i
-      }
-    }
-    return 0
-  }, [currentIndex, subjectGroups])
-
-  const currentGroup = subjectGroups[currentGroupIndex] ?? null
-  const currentInGroupIndex = currentGroup
-    ? currentIndex - currentGroup.startIndex
-    : 0
-
-  // ---------- 静默自动保存 ----------
-  const silentSave = useCallback(async () => {
-    if (!examRecordId || answers.length === 0) return
+  const loadExam = useCallback(async () => {
+    if (!examId || examId === loadedExamId) return
+    setLoading(true)
+    setQuestions([])
+    setAnswers([])
     try {
-      await studentExamApi.submitAnswers(examRecordId, answers, 'save')
-    } catch {
-      // 静默保存失败不提示用户，避免干扰答题
-    }
-  }, [examRecordId, answers])
-
-  useEffect(() => {
-    autoSaveTimerRef.current = setInterval(silentSave, AUTO_SAVE_INTERVAL_MS)
-    return () => {
-      if (autoSaveTimerRef.current) {
-        clearInterval(autoSaveTimerRef.current)
-      }
-    }
-  }, [silentSave])
-
-  // ---------- 防刷新/关闭提示 ----------
-  useEffect(() => {
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      e.preventDefault()
-      // 现代浏览器要求 returnValue 被设置
-      e.returnValue = ''
-      return ''
-    }
-    window.addEventListener('beforeunload', handleBeforeUnload)
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
-  }, [])
-
-  // ---------- 加载考试 + 恢复已答选项 ----------
-  useEffect(() => {
-    const loadExam = async () => {
-      try {
-        const startRes = await studentExamApi.startExam(assignmentId)
-        const startD = startRes.data
-        if (startD.code !== 0) {
-          setError(startD.message)
+      const res = await studentExamApi.getExamContent(examId)
+      if (res.data.code === 0 && res.data.data) {
+        // 已提交的考试 → 直接跳转成绩页
+        if (res.data.data.status === 'submitted') {
+          navigate('/results', { replace: true })
           return
         }
-
-        setExamRecord(startD.data!.examRecordId, startD.data!.startedAt)
-
-        const contentRes = await studentExamApi.getExamContent(assignmentId)
-        const contentD = contentRes.data
-        if (contentD.code === 0) {
-          const qs = contentD.data!.questions as Question[]
-          setLocalQuestions(qs)
-          setQuestions(qs.map((q: Question) => ({ id: q.id })))
-
-          // 恢复已保存的答案
-          const examRecord = contentD.data!.examRecord
-          if (examRecord && (examRecord as Record<string, unknown>).answers) {
-            try {
-              const savedAnswers = JSON.parse(
-                String((examRecord as Record<string, unknown>).answers)
-              ) as Array<{ questionId: number; answer: string }>
-              for (const a of savedAnswers) {
-                if (a.questionId && a.answer) {
-                  setAnswer(a.questionId, a.answer)
-                }
-              }
-            } catch {
-              // 答案解析失败，忽略，从零开始作答
-            }
-          }
-        }
-      } catch (e: unknown) {
-        const err = e as { message?: string }
-        setError(err.message || '加载失败')
-      } finally {
-        setLoading(false)
+        setQuestions(res.data.data.questions)
+        setLoadedExamId(examId)
+      } else {
+        setError(res.data.message || '考试记录不存在')
       }
+    } catch (err: unknown) {
+      const e = err as { message?: string }
+      setError(e.message || '加载考试失败')
+    } finally {
+      setLoading(false)
     }
+  }, [examId, loadedExamId])
 
+  useEffect(() => {
     loadExam()
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loadExam])
 
-  // ---------- 构建答案 Map 供 QuestionNav 使用 ----------
-  const answersMap = useMemo<Record<number, string>>(() => {
-    const map: Record<number, string> = {}
-    for (const a of answers) {
-      map[a.questionId] = a.answer
+  const handleAnswerChange = (questionId: number, answer: string) => {
+    setAnswers(prev => {
+      const idx = prev.findIndex(a => a.questionId === questionId)
+      if (idx >= 0) {
+        const next = [...prev]
+        next[idx] = { questionId, answer }
+        return next
+      }
+      return [...prev, { questionId, answer }]
+    })
+  }
+
+  const getAnswer = (questionId: number) => {
+    return answers.find(a => a.questionId === questionId)?.answer ?? ''
+  }
+
+  const answeredCount = answers.filter(a => a.answer.trim()).length
+  const progress = questions.length > 0 ? (answeredCount / questions.length) * 100 : 0
+
+  const handleSubmit = async () => {
+    if (!examId) return
+    setConfirmOpen(false)
+    setSubmitting(true)
+    try {
+      const res = await studentExamApi.submitExam(examId, answers)
+      if (res.data.code === 0) {
+        // 获取所有科目状态，找下一个未考科目
+        const subjectsRes = await studentExamApi.getSubjects()
+        if (subjectsRes.data.code === 0 && subjectsRes.data.data) {
+          const list = subjectsRes.data.data.subjects
+          const nextSubject = list.find(s => s.status !== 'submitted')
+          if (nextSubject) {
+            // 自动开始下一科
+            try {
+              const startRes = await studentExamApi.startExam(nextSubject.subject)
+              if (startRes.data.code === 0 && startRes.data.data) {
+                navigate(`/exam/${nextSubject.subject}`, {
+                  state: { examId: startRes.data.data.examId },
+                  replace: true,
+                })
+                return
+              }
+            } catch { /* 自动开始失败，回科目列表 */ }
+            // 自动开始失败，回到科目列表让用户手动开始
+            navigate('/subjects', { replace: true })
+            return
+          }
+          // 全部考完 → 成绩汇总
+          navigate('/results', { replace: true })
+        } else {
+          navigate('/subjects', { replace: true })
+        }
+      } else {
+        setError(res.data.message)
+      }
+    } catch (err: unknown) {
+      const e = err as { message?: string }
+      setError(e.message || '提交失败')
+    } finally {
+      setSubmitting(false)
     }
-    return map
-  }, [answers])
+  }
 
   if (loading) {
-    return (
-      <Box sx={{ textAlign: 'center', py: 10 }}>
-        <CircularProgress size={40} sx={{ color: '#7c4dff' }} />
-        <Typography mt={2} color="#718096">正在加载试卷...</Typography>
-      </Box>
-    )
+    return <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}><CircularProgress /></Box>
   }
-
-  if (error) {
-    return (
-      <Alert severity="error" sx={{ mt: 4, borderRadius: 2 }}>
-        {error}
-        <Button onClick={() => navigate('/exams')} sx={{ ml: 2 }}>返回列表</Button>
-      </Alert>
-    )
-  }
-
-  if (grading) {
-    return (
-      <Box sx={{ textAlign: 'center', py: 10 }}>
-        <CircularProgress size={64} sx={{ color: '#7c4dff' }} />
-        <Typography variant="h6" mt={3} fontWeight={600} color="#4a5568">
-          系统正在自动判分中
-        </Typography>
-        <Typography variant="body2" color="#a0aec0" mt={1}>
-          请稍候，即将跳转到成绩页面...
-        </Typography>
-      </Box>
-    )
-  }
-
-  const q = questions[currentIndex]
-  if (!q) return null
-
-  const total = questions.length
-  const unanswered = getUnansweredCount()
-  const answered = total - unanswered
-  const isMultiSubject = subjectGroups.length > 1
-  const group = currentGroup
-  const typeConfig = TYPE_DISPLAY[q.type] || TYPE_DISPLAY.choice
-
-  const handleSubmit = async (confirmed: boolean) => {
-    setSubmitConfirmOpen(false)
-    if (!confirmed) return
-    if (!examRecordId) {
-      setError('考试记录不存在')
-      return
-    }
-
-    // 提交前先清除自动保存定时器，避免竞态
-    if (autoSaveTimerRef.current) {
-      clearInterval(autoSaveTimerRef.current)
-      autoSaveTimerRef.current = null
-    }
-
-    setGrading(true)
-    try {
-      const res = await studentExamApi.submitAnswers(examRecordId, answers, 'submit')
-      const d = res.data
-      if (d.code === 0) {
-        navigate(`/exams/${examRecordId}/result`)
-      } else {
-        setError(d.message)
-        setGrading(false)
-      }
-    } catch (e: unknown) {
-      const err = e as { message?: string }
-      setError(err.message || '提交失败')
-      setGrading(false)
-    }
-  }
-
-  const prevQuestion = currentIndex > 0 ? questions[currentIndex - 1] : null
-  const isSubjectBoundary = prevQuestion && prevQuestion.subject !== q.subject
 
   return (
-    <Box
-      sx={{
-        display: 'flex',
-        gap: 3,
-        flexDirection: { xs: 'column', md: 'row' },
-      }}
-    >
-      {/* 答题主区域 */}
-      <Box sx={{ flex: 1, minWidth: 0 }}>
-        {/* 科目导航 */}
-        {isMultiSubject && (
-          <Box
-            sx={{
-              display: 'flex',
-              gap: 1,
-              mb: 3,
-              p: 1.5,
-              bgcolor: '#fff',
-              borderRadius: 3,
-              boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-            }}
-          >
-            {subjectGroups.map((g, gi) => {
-              const isActive = gi === currentGroupIndex
-              const isDone = currentIndex > g.startIndex + g.questions.length - 1
-              return (
-                <Chip
-                  key={g.subject}
-                  label={`${g.subjectName} (${g.questions.length}题)`}
-                  onClick={() => setCurrentIndex(g.startIndex)}
-                  sx={{
-                    cursor: 'pointer',
-                    fontWeight: isActive ? 700 : 500,
-                    fontSize: '0.85rem',
-                    px: 1,
-                    borderRadius: 2,
-                    border: isActive ? '2px solid' : '1px solid',
-                    borderColor: isActive ? '#7c4dff' : '#e2e8f0',
-                    bgcolor: isActive ? '#f5f3ff' : '#fff',
-                    color: isActive ? '#7c4dff' : isDone ? '#38a169' : '#718096',
-                    '&:hover': {
-                      bgcolor: isActive ? '#ede9fe' : '#f7fafc',
-                    },
-                  }}
-                />
-              )
-            })}
-          </Box>
-        )}
-
-        {/* 进度区域 */}
-        <Box
-          sx={{
-            mb: 3,
-            p: 2,
-            bgcolor: '#fff',
-            borderRadius: 3,
-            boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-          }}
-        >
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
-            <Typography variant="body2" color="#4a5568" fontWeight={600}>
-              {isMultiSubject && (
-                <Box
-                  component="span"
-                  sx={{
-                    color: '#7c4dff',
-                    fontWeight: 700,
-                    mr: 1,
-                    px: 1,
-                    py: 0.25,
-                    borderRadius: 1,
-                    bgcolor: '#f5f3ff',
-                    fontSize: '0.8rem',
-                  }}
-                >
-                  {group?.subjectName}
-                </Box>
-              )}
-              第 {currentInGroupIndex + 1} / {group?.questions.length} 题
-              {isMultiSubject && (
-                <Box component="span" sx={{ ml: 1, color: '#a0aec0', fontWeight: 400 }}>
-                  （全卷第 {currentIndex + 1} / {total} 题）
-                </Box>
-              )}
-            </Typography>
-            <Typography variant="body2" sx={{ color: unanswered > 0 ? '#e53e3e' : '#38a169', fontWeight: 600 }}>
-              {unanswered > 0 ? `未答 ${unanswered} 题` : '全部已答'}
-            </Typography>
-          </Box>
-          <LinearProgress
-            variant="determinate"
-            value={total > 0 ? (answered / total) * 100 : 0}
-            sx={{
-              height: 8,
-              borderRadius: 4,
-              bgcolor: '#edf2f7',
-              '& .MuiLinearProgress-bar': {
-                borderRadius: 4,
-                background: unanswered === 0
-                  ? 'linear-gradient(90deg, #38a169 0%, #68d391 100%)'
-                  : 'linear-gradient(90deg, #7c4dff 0%, #b794f4 100%)',
-              },
-            }}
-          />
-          {isMultiSubject && group && (
-            <LinearProgress
-              variant="determinate"
-              value={group.questions.length > 0 ? ((currentInGroupIndex + 1) / group.questions.length) * 100 : 0}
-              sx={{
-                height: 4,
-                borderRadius: 2,
-                mt: 1,
-                bgcolor: '#f7fafc',
-                '& .MuiLinearProgress-bar': {
-                  borderRadius: 2,
-                  background: 'linear-gradient(90deg, #1976d2 0%, #64b5f6 100%)',
-                },
-              }}
-            />
-          )}
+    <Box>
+      {/* 科目标题 + 进度条 */}
+      <Paper sx={{ p: 2, mb: 3, borderRadius: 2 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+          <Typography variant="h6" fontWeight={700}>{subjectName} 考试</Typography>
+          <Typography variant="body2" color="text.secondary">
+            {answeredCount}/{questions.length} 已答
+          </Typography>
         </Box>
+        <LinearProgress variant="determinate" value={progress} sx={{ height: 6, borderRadius: 3 }} />
+      </Paper>
 
-        {/* 科目切换提示 */}
-        {isSubjectBoundary && isMultiSubject && (
-          <Alert
-            severity="info"
-            sx={{
-              mb: 2,
-              borderRadius: 2,
-              bgcolor: '#ebf8ff',
-              color: '#2b6cb0',
-              '& .MuiAlert-icon': { color: '#4299e1' },
-            }}
-          >
-            已进入 <strong>{SUBJECT_DISPLAY[q.subject || ''] || q.subject}</strong> 科目部分
-          </Alert>
-        )}
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
-        {/* 题目卡片 — 带 id 供导航栏滚动定位 */}
-        <Box id={`q-${currentIndex}`}>
-          <Paper
-            elevation={0}
-            sx={{
-              p: { xs: 2, sm: 3 },
-              mb: 3,
-              borderRadius: 3,
-              boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-              border: '1px solid #e8edf2',
-            }}
-          >
-            {/* 题目类型标签 */}
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
-              <Chip
-                label={typeConfig.label}
-                size="small"
-                sx={{
-                  fontWeight: 600,
-                  bgcolor: typeConfig.bg,
-                  color: typeConfig.color,
-                  border: `1px solid ${typeConfig.color}20`,
-                }}
-              />
-              <Chip
-                label={`${q.score} 分`}
-                size="small"
-                sx={{
-                  fontWeight: 600,
-                  bgcolor: '#fefcbf',
-                  color: '#975a16',
-                  border: '1px solid #fefcbf',
-                }}
-              />
-            </Box>
+      {/* 题目列表 */}
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+        {questions.map((q, idx) => (
+          <Card key={q.id} sx={{ p: 2.5, borderRadius: 2, border: '1px solid #e8edf2' }}>
+            <Typography variant="subtitle2" color="primary" sx={{ mb: 0.5 }}>
+              第 {idx + 1} 题 ({q.type === 'choice' ? '选择题' : '填空题'})
+            </Typography>
+            <Typography variant="body1" sx={{ mb: 2, fontWeight: 500 }}>{q.content}</Typography>
 
-            <QuestionContent content={q.content} sx={{ fontSize: '1.05em', lineHeight: 1.9, color: '#2d3748' }} />
-
-            {/* 选择题 */}
-            {q.type === 'choice' && q.options && (
-              <RadioGroup
-                value={getAnswer(q.id)}
-                onChange={(_, v) => setAnswer(q.id, v)}
-                sx={{ mt: 2 }}
-              >
-                {q.options.map(opt => {
-                  const isSelected = getAnswer(q.id) === opt.label
-                  return (
+            {q.type === 'choice' && q.options ? (
+              <FormControl component="fieldset">
+                <RadioGroup
+                  value={getAnswer(q.id)}
+                  onChange={e => handleAnswerChange(q.id, e.target.value)}
+                >
+                  {q.options.map(opt => (
                     <FormControlLabel
                       key={opt.label}
                       value={opt.label}
-                      control={
-                        <Radio
-                          sx={{
-                            '&.Mui-checked': { color: '#7c4dff' },
-                          }}
-                        />
-                      }
-                      label={
-                        <Typography sx={{ fontWeight: isSelected ? 600 : 400, color: isSelected ? '#2d3748' : '#4a5568' }}>
-                          <Box component="span" sx={{ fontWeight: 700, mr: 0.5, color: '#7c4dff' }}>
-                            {opt.label}.
-                          </Box>
-                          {opt.text}
-                        </Typography>
-                      }
-                      sx={{
-                        m: { xs: 0, sm: 0.5 },
-                        p: 1.5,
-                        px: 2,
-                        borderRadius: 2,
-                        bgcolor: isSelected ? '#f5f3ff' : '#fafafa',
-                        border: '1px solid',
-                        borderColor: isSelected ? '#d6bcfa' : '#edf2f7',
-                        width: { xs: '100%', sm: '100%' },
-                        transition: 'all 0.15s ease',
-                        '&:hover': {
-                          bgcolor: isSelected ? '#ede9fe' : '#f7fafc',
-                          borderColor: isSelected ? '#c4b5fd' : '#e2e8f0',
-                        },
-                      }}
+                      control={<Radio />}
+                      label={`${opt.label}. ${opt.text}`}
                     />
-                  )
-                })}
-              </RadioGroup>
-            )}
-
-            {/* 填空题 */}
-            {q.type === 'fill' && (
+                  ))}
+                </RadioGroup>
+              </FormControl>
+            ) : (
               <TextField
                 fullWidth
-                placeholder="请输入答案"
+                size="small"
                 value={getAnswer(q.id)}
-                onChange={e => setAnswer(q.id, e.target.value)}
-                sx={{
-                  mt: 2,
-                  '& .MuiOutlinedInput-root': {
-                    borderRadius: 2,
-                    '&.Mui-focused fieldset': { borderColor: '#7c4dff' },
-                  },
-                }}
+                onChange={e => handleAnswerChange(q.id, e.target.value)}
+                placeholder="请输入答案"
               />
             )}
-
-            {/* 简答题 */}
-            {q.type === 'essay' && (
-              <TextField
-                fullWidth
-                multiline
-                rows={6}
-                placeholder="请输入答案"
-                value={getAnswer(q.id)}
-                onChange={e => setAnswer(q.id, e.target.value)}
-                sx={{
-                  mt: 2,
-                  '& .MuiOutlinedInput-root': {
-                    borderRadius: 2,
-                    '&.Mui-focused fieldset': { borderColor: '#7c4dff' },
-                  },
-                }}
-              />
-            )}
-          </Paper>
-        </Box>
-
-        {/* 导航按钮 */}
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Button
-            variant="outlined"
-            startIcon={<ArrowBackIcon />}
-            disabled={currentIndex === 0}
-            onClick={() => setCurrentIndex(currentIndex - 1)}
-            sx={{
-              px: 3,
-              py: 1.2,
-              borderRadius: 2.5,
-              fontWeight: 600,
-              color: '#4a5568',
-              borderColor: '#e2e8f0',
-              '&:hover': { borderColor: '#a0aec0', bgcolor: '#f7fafc' },
-              '&.Mui-disabled': { color: '#cbd5e0', borderColor: '#edf2f7' },
-            }}
-          >
-            上一题
-          </Button>
-
-          <Typography variant="body2" color="#a0aec0" sx={{ display: { xs: 'none', sm: 'block' } }}>
-            <QuizIcon sx={{ fontSize: 16, mr: 0.5, verticalAlign: 'middle' }} />
-            {answered}/{total}
-          </Typography>
-
-          {currentIndex === total - 1 ? (
-            <Button
-              variant="contained"
-              endIcon={<SendIcon />}
-              onClick={() => setSubmitConfirmOpen(true)}
-              sx={{
-                px: 3,
-                py: 1.2,
-                borderRadius: 2.5,
-                fontWeight: 600,
-                background: unanswered > 0
-                  ? 'linear-gradient(135deg, #e53e3e 0%, #fc8181 100%)'
-                  : 'linear-gradient(135deg, #38a169 0%, #68d391 100%)',
-                boxShadow: unanswered > 0
-                  ? '0 4px 15px rgba(229, 62, 62, 0.3)'
-                  : '0 4px 15px rgba(56, 161, 105, 0.3)',
-                '&:hover': {
-                  background: unanswered > 0
-                    ? 'linear-gradient(135deg, #c53030 0%, #f56565 100%)'
-                    : 'linear-gradient(135deg, #2f855a 0%, #48bb78 100%)',
-                },
-              }}
-            >
-              交卷
-            </Button>
-          ) : (
-            <Button
-              variant="contained"
-              endIcon={<ArrowForwardIcon />}
-              onClick={() => setCurrentIndex(currentIndex + 1)}
-              sx={{
-                px: 3,
-                py: 1.2,
-                borderRadius: 2.5,
-                fontWeight: 600,
-                background: 'linear-gradient(135deg, #7c4dff 0%, #b794f4 100%)',
-                boxShadow: '0 4px 15px rgba(124, 77, 255, 0.3)',
-                '&:hover': {
-                  background: 'linear-gradient(135deg, #6b46c1 0%, #9f7aea 100%)',
-                },
-              }}
-            >
-              下一题
-            </Button>
-          )}
-        </Box>
+          </Card>
+        ))}
       </Box>
 
-      {/* 题目导航栏：桌面端右侧固定，移动端底部固定 */}
-      <Box
+      {/* 提交按钮 */}
+      <Button
+        variant="contained"
+        fullWidth
+        size="large"
+        onClick={() => setConfirmOpen(true)}
+        disabled={submitting}
         sx={{
-          display: { xs: 'block', md: 'block' },
-          position: { xs: 'fixed', md: 'sticky' },
-          bottom: { xs: 0, md: 'auto' },
-          left: { xs: 0, md: 'auto' },
-          right: { xs: 0, md: 'auto' },
-          top: { xs: 'auto', md: 80 },
-          zIndex: { xs: 1100, md: 'auto' },
-          width: { xs: '100%', md: 220 },
-          flexShrink: 0,
-          maxHeight: { md: 'calc(100vh - 120px)' },
-          overflowY: 'auto',
-          borderRadius: { md: 0 },
-          // 移动端底部栏增加边框和阴影以区分内容
-          borderTop: { xs: '1px solid #e8edf2', md: 'none' },
-          boxShadow: { xs: '0 -2px 10px rgba(0,0,0,0.08)', md: 'none' },
-          bgcolor: { xs: '#fff', md: 'transparent' },
+          mt: 3, py: 1.5, borderRadius: 3, fontWeight: 600,
+          background: 'linear-gradient(135deg, #1976d2 0%, #7c4dff 100%)',
         }}
+        startIcon={submitting ? <CircularProgress size={20} color="inherit" /> : <SendIcon />}
       >
-        <QuestionNav
-          questions={questions.map(q => ({ id: q.id }))}
-          answers={answersMap}
-          currentIndex={currentIndex}
-          onSelect={setCurrentIndex}
-        />
-      </Box>
+        {submitting ? '提交中...' : '提交考试'}
+      </Button>
 
-      {/* 移动端底部留白，避免导航栏遮挡内容 */}
-      <Box sx={{ height: { xs: 200, md: 0 }, flexShrink: 0, display: { xs: 'block', md: 'none' } }} />
-
-      {/* 提交确认弹窗 */}
-      <ConfirmDialog
-        open={submitConfirmOpen}
-        title="确认交卷"
-        message={
-          unanswered > 0
-            ? `您还有 ${unanswered} 道题未作答，是否确认交卷？`
-            : '确认要提交试卷吗？提交后将无法修改。'
-        }
-        confirmText="确认交卷"
-        cancelText="返回检查"
-        onConfirm={() => handleSubmit(true)}
-        onCancel={() => handleSubmit(false)}
-      />
+      {/* 确认弹窗 */}
+      <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)}>
+        <DialogTitle>确认提交</DialogTitle>
+        <DialogContent>
+          <Typography>
+            已答 {answeredCount}/{questions.length} 题，
+            还有 {questions.length - answeredCount} 题未答。
+            提交后不可修改，确认提交？
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmOpen(false)}>取消</Button>
+          <Button onClick={handleSubmit} variant="contained" color="primary">
+            确认提交
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }

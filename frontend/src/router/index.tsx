@@ -13,13 +13,16 @@ import { UserListPage } from '../pages/admin/user/UserListPage'
 import { AssignPage } from '../pages/admin/assignment/AssignPage'
 import { ExamDataPage } from '../pages/admin/exam/ExamDataPage'
 import { AdminManagePage } from '../pages/admin/AdminManagePage'
+import { QuestionBankPage } from '../pages/admin/question-bank/QuestionBankPage'
+import { TutorImportPage } from '../pages/admin/TutorImportPage'
 
 // 考生端页面
 import { StudentLayout } from '../components/layout/StudentLayout'
 import { LoginPage as ExamLoginPage } from '../pages/exam/LoginPage'
-import { PaperListPage as ExamPaperListPage } from '../pages/exam/PaperListPage'
+import { RegisterPage as ExamRegisterPage } from '../pages/exam/RegisterPage'
+import { SubjectListPage } from '../pages/exam/SubjectListPage'
 import { ExamPage } from '../pages/exam/ExamPage'
-import { ResultPage } from '../pages/exam/ResultPage'
+import { MultiResultPage } from '../pages/exam/MultiResultPage'
 import { ErrorBoundary } from '../components/ui/ErrorBoundary'
 
 /** 管理端鉴权守卫 */
@@ -38,7 +41,7 @@ function StudentGuard({ children }: { children: React.ReactNode }) {
 
 export function AppRouter() {
   return useRoutes([
-    // 首页重定向到考生登录页
+    // 首页重定向
     { path: '/', element: <Navigate to="/login" replace /> },
 
     // 管理端登录注册（公开）
@@ -55,33 +58,39 @@ export function AppRouter() {
       ),
       children: [
         { path: 'dashboard', element: <DashboardPage /> },
+        { path: 'question-bank', element: <QuestionBankPage /> },
         { path: 'papers', element: <PaperListPage /> },
         { path: 'papers/upload', element: <PaperUploadPage /> },
         { path: 'users', element: <UserListPage /> },
         { path: 'assign', element: <AssignPage /> },
         { path: 'exams', element: <ExamDataPage /> },
         { path: 'admins', element: <AdminManagePage /> },
+        { path: 'tutor-import', element: <TutorImportPage /> },
         { path: '', element: <Navigate to="/admin/dashboard" replace /> },
       ],
     },
 
     // 考生端（公开）
     { path: '/login', element: <ExamLoginPage /> },
+    { path: '/register', element: <ExamRegisterPage /> },
 
     // 考生端（需鉴权）
     {
-      path: '/exams',
       element: (
         <StudentGuard>
           <StudentLayout />
         </StudentGuard>
       ),
       children: [
-        { path: '', element: <ExamPaperListPage /> },
-        { path: ':id/answer', element: <ErrorBoundary><ExamPage /></ErrorBoundary> },
-        { path: ':id/result', element: <ResultPage /> },
+        { path: '/subjects', element: <SubjectListPage /> },
+        { path: '/exam/:subject', element: <ErrorBoundary><ExamPage /></ErrorBoundary> },
+        { path: '/results', element: <MultiResultPage /> },
       ],
     },
+
+    // 兼容旧路径
+    { path: '/exams', element: <Navigate to="/subjects" replace /> },
+    { path: '/exams/*', element: <Navigate to="/subjects" replace /> },
 
     // 404
     { path: '*', element: <Navigate to="/" replace /> },

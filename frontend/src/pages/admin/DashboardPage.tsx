@@ -8,8 +8,8 @@ import {
 } from '@mui/material'
 import ArticleIcon from '@mui/icons-material/Article'
 import PeopleIcon from '@mui/icons-material/People'
-import AssignmentIcon from '@mui/icons-material/Assignment'
 import AssessmentIcon from '@mui/icons-material/Assessment'
+import LibraryBooksIcon from '@mui/icons-material/LibraryBooks'
 import { useAuthStore } from '../../store/authStore'
 
 export function DashboardPage() {
@@ -20,6 +20,14 @@ export function DashboardPage() {
   const menuItems = [
     ...(isAdmin
       ? [{
+          label: '题库管理',
+          desc: '管理各科目题库',
+          path: '/admin/question-bank',
+          icon: <LibraryBooksIcon sx={{ fontSize: 48, color: '#00bcd4' }} />,
+        }]
+      : []),
+    ...(isAdmin
+      ? [{
           label: '试卷管理',
           desc: '上传、预览、删除试卷',
           path: '/admin/papers',
@@ -27,20 +35,14 @@ export function DashboardPage() {
         }]
       : []),
     {
-      label: '用户管理',
-      desc: '导入、编辑、删除考生',
+      label: '我的学生',
+      desc: '查看、管理学生信息',
       path: '/admin/users',
       icon: <PeopleIcon sx={{ fontSize: 48, color: '#388e3c' }} />,
     },
     {
-      label: '分配试卷',
-      desc: '为考生分配试卷',
-      path: '/admin/assign',
-      icon: <AssignmentIcon sx={{ fontSize: 48, color: '#f57c00' }} />,
-    },
-    {
       label: '考试数据',
-      desc: '查看考试记录与成绩',
+      desc: '查看学生考试成绩',
       path: '/admin/exams',
       icon: <AssessmentIcon sx={{ fontSize: 48, color: '#7b1fa2' }} />,
     },

@@ -10,6 +10,10 @@ import {
   Alert,
   MenuItem,
   Link,
+  FormControl,
+  InputLabel,
+  Select,
+  SelectChangeEvent,
 } from '@mui/material'
 import { useAuthStore } from '../../store/authStore'
 import { validatePassword } from '../../utils/validators'
@@ -20,7 +24,7 @@ export function RegisterPage() {
   const [form, setForm] = useState({
     name: '',
     email: '',
-    role: 'tutor' as 'admin' | 'tutor',
+    role: 'short_term_tutor' as 'admin' | 'short_term_tutor',
     password: '',
     confirmPassword: '',
   })
@@ -103,17 +107,18 @@ export function RegisterPage() {
               error={!!fieldErrors.email}
               helperText={fieldErrors.email}
             />
-            <TextField
-              select
-              label="身份"
-              fullWidth
-              margin="normal"
-              value={form.role}
-              onChange={handleChange('role')}
-            >
-              <MenuItem value="admin">Administrator</MenuItem>
-              <MenuItem value="tutor">短期班辅导</MenuItem>
-            </TextField>
+            <FormControl fullWidth margin="normal">
+              <InputLabel id="role-label">身份</InputLabel>
+              <Select
+                labelId="role-label"
+                label="身份"
+                value={form.role}
+                onChange={(e: SelectChangeEvent) => setForm(prev => ({ ...prev, role: e.target.value as 'admin' | 'short_term_tutor' }))}
+              >
+                <MenuItem value="admin">管理员</MenuItem>
+                <MenuItem value="short_term_tutor">短期班辅导</MenuItem>
+              </Select>
+            </FormControl>
             <TextField
               label="密码"
               type="password"

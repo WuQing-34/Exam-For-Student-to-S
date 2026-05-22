@@ -4,6 +4,14 @@
 import { ALL_GRADE_MAP, SUBJECT_MAP } from '../types'
 
 /**
+ * 手机号脱敏：只显示后四位
+ */
+export function maskPhone(phone: string): string {
+  if (!phone || phone.length < 4) return phone || ''
+  return '****' + phone.slice(-4)
+}
+
+/**
  * 格式化日期时间
  */
 export function formatDateTime(dateStr: string | null): string {

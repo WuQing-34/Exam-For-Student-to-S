@@ -30,8 +30,12 @@ import UploadIcon from '@mui/icons-material/Upload'
 import { userApi } from '../../../api/user'
 import { GRADE_MAP } from '../../../types'
 import { formatDateTime } from '../../../utils/formatters'
+import { maskPhone } from '../../../utils/formatters'
+import { useAuthStore } from '../../../store/authStore'
 
 export function UserListPage() {
+  const currentUser = useAuthStore(s => s.user)
+  const isTutor = currentUser?.role === 'short_term_tutor'
   const [students, setStudents] = useState<any[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(0)
@@ -57,12 +61,14 @@ export function UserListPage() {
   const fetchStudents = async () => {
     setLoading(true)
     try {
-      const res = await userApi.list({
-        grade: grade || undefined,
-        keyword: keyword || undefined,
-        page: page + 1,
-        pageSize,
-      })
+      const res = isTutor
+        ? await userApi.myStudents({ page: page + 1, pageSize })
+        : await userApi.list({
+            grade: grade || undefined,
+            keyword: keyword || undefined,
+            page: page + 1,
+            pageSize,
+          })
       const d = res.data
       if (d.code === 0) {
         setStudents(d.data!.list)
@@ -125,7 +131,7 @@ export function UserListPage() {
       const res = await userApi.import(formData)
       const d = res.data
       if (d.code === 0) {
-        setSnackbar(`导入完成：成功 ${d.data!.success}，失败 ${d.data!.failed}，自动分配 ${d.data!.autoAssigned || 0} 条`)
+        setSnackbar(`导入完成：成功 ${d.data!.success}，失败 ${d.data!.failed} 条`)
       } else {
         setSnackbar(d.message)
       }
@@ -203,7 +209,7 @@ export function UserListPage() {
               {students.map(s => (
                 <TableRow key={s.id}>
                   <TableCell>{s.name}</TableCell>
-                  <TableCell>{s.phone}</TableCell>
+                  <TableCell>{maskPhone(s.phone)}</TableCell>
                   <TableCell>{GRADE_MAP[s.grade as keyof typeof GRADE_MAP] || s.grade}</TableCell>
                   <TableCell>{formatDateTime(s.created_at)}</TableCell>
                   <TableCell>

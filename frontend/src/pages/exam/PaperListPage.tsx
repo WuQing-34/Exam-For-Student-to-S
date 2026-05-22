@@ -25,13 +25,13 @@ export function PaperListPage() {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    studentExamApi.getPaperList()
+    studentExamApi.getSubjects()
       .then(res => {
         const d = res.data
-        if (d.code === 0) setPapers(d.data!.list)
+        if (d.code === 0) setPapers(d.data!.subjects)
         else setError(d.message)
       })
-      .catch(() => setError('获取试卷列表失败'))
+      .catch(() => setError('获取科目列表失败'))
       .finally(() => setLoading(false))
   }, [])
 

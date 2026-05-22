@@ -22,7 +22,6 @@ import {
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import LockIcon from '@mui/icons-material/Lock'
-import DeleteIcon from '@mui/icons-material/Delete'
 import { authApi } from '../../api/auth'
 import type { AdminUser } from '../../types/user'
 

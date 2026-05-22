@@ -8,7 +8,9 @@ export interface AdminInfo {
   email: string
   password_hash: string
   name: string
-  role: 'admin' | 'tutor'
+  role: 'admin' | 'short_term_tutor'
+  center?: string | null
+  team?: string | null
   created_at: string
 }
 
@@ -35,7 +37,7 @@ export const authService = {
     email: string
     password: string
     name: string
-    role: 'admin' | 'tutor'
+    role: 'admin' | 'short_term_tutor'
   }): Promise<AdminInfo> {
     const db = getDb()
 
@@ -149,5 +151,48 @@ export const authService = {
       const { password_hash: _, ...info } = u
       return info
     })
+  },
+
+  /**
+   * 批量导入短期班辅导名单 (v2.1)
+   */
+  async batchImportTutors(records: Array<{
+    center: string
+    team: string
+    name: string
+    email: string
+  }>): Promise<{ success: number; failed: number; errors: string[] }> {
+    const db = getDb()
+    const defaultPassword = 'aa123456'
+    const passwordHash = await bcrypt.hash(defaultPassword, 10)
+
+    let success = 0
+    let failed = 0
+    const errors: string[] = []
+
+    for (const r of records) {
+      try {
+        // 检查邮箱是否已存在
+        const exist = db.exec('SELECT id FROM admin WHERE email = ?', [r.email])
+        if (exist[0]?.values?.length) {
+          failed++
+          errors.push(`${r.name}（${r.email}）：邮箱前缀已存在`)
+          continue
+        }
+
+        db.run(
+          'INSERT INTO admin (email, password_hash, name, role, center, team) VALUES (?, ?, ?, ?, ?, ?)',
+          [r.email, passwordHash, r.name, 'short_term_tutor', r.center || null, r.team || null]
+        )
+        success++
+      } catch (e: unknown) {
+        failed++
+        const err = e as Error
+        errors.push(`${r.name}（${r.email}）：${err.message}`)
+      }
+    }
+
+    saveDatabase()
+    return { success, failed, errors }
   },
 }

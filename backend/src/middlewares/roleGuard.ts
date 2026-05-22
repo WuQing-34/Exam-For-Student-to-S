@@ -4,7 +4,7 @@ import { Request, Response, NextFunction } from 'express'
  * 角色权限校验中间件
  * @param roles 允许的角色列表
  */
-export function roleGuard(...roles: Array<'admin' | 'tutor'>) {
+export function roleGuard(...roles: Array<'admin' | 'short_term_tutor'>) {
   return (req: Request, res: Response, next: NextFunction): void => {
     const admin = req.admin
     if (!admin) {
