@@ -190,6 +190,25 @@ router.get('/:id/preview', verifyJWT, (req, res) => {
 })
 
 /**
+ * DELETE /api/admin/papers/batch
+ * 批量删除试卷（仅 admin）
+ */
+router.delete('/batch', verifyJWT, roleGuard('admin'), (req, res) => {
+  try {
+    const { ids } = req.body
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      res.status(400).json(errorResponse(1000, '请提供要删除的试卷ID列表'))
+      return
+    }
+    const count = paperModel.batchDelete(ids)
+    res.json(apiResponse({ count }, `成功删除 ${count} 份试卷`))
+  } catch (e: unknown) {
+    const err = e as Error
+    res.status(500).json(errorResponse(1000, err.message))
+  }
+})
+
+/**
  * DELETE /api/admin/papers/:id
  * 删除试卷（仅 admin）
  */

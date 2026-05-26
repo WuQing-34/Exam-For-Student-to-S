@@ -79,6 +79,18 @@ export const questionBankModel = {
   },
 
   /**
+   * 批量删除题目
+   */
+  batchDelete(ids: number[]): number {
+    if (ids.length === 0) return 0
+    const db = getDb()
+    const placeholders = ids.map(() => '?').join(',')
+    db.run(`DELETE FROM question_bank WHERE id IN (${placeholders})`, ids)
+    saveDatabase()
+    return ids.length
+  },
+
+  /**
    * 按科目查询题目
    */
   findBySubject(subject: string, type?: string): QuestionBankItem[] {

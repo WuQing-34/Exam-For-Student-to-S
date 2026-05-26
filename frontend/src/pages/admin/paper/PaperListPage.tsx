@@ -19,6 +19,7 @@ import {
   DialogActions,
   Chip,
   CircularProgress,
+  Checkbox,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import VisibilityIcon from '@mui/icons-material/Visibility'
@@ -44,6 +45,33 @@ export function PaperListPage() {
   const [deleteId, setDeleteId] = useState<number | null>(null)
   const [editingQuestion, setEditingQuestion] = useState<any>(null)
   const [error, setError] = useState('')
+
+  // 批量选择
+  const [selectedIds, setSelectedIds] = useState<number[]>([])
+
+  const toggleSelect = (id: number) => {
+    setSelectedIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    )
+  }
+
+  const toggleSelectAll = () => {
+    const allIds = papers.map(p => p.id)
+    setSelectedIds(prev => prev.length === allIds.length ? [] : allIds)
+  }
+
+  const handleBatchDelete = async () => {
+    if (selectedIds.length === 0) return
+    if (!confirm(`确定删除选中的 ${selectedIds.length} 份试卷？此操作不可撤销，将同时删除试卷内的所有题目。`)) return
+    try {
+      await paperApi.batchDelete(selectedIds)
+      setSelectedIds([])
+      fetchPapers()
+    } catch (e: unknown) {
+      const err = e as { message?: string }
+      setError(err.message || '批量删除失败')
+    }
+  }
 
   const fetchPapers = async () => {
     setLoading(true)
@@ -113,9 +141,16 @@ export function PaperListPage() {
     <Box>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h5" fontWeight="bold">试卷管理</Typography>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={() => navigate('/admin/papers/upload')}>
-          上传试卷
-        </Button>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          {selectedIds.length > 0 && (
+            <Button variant="contained" color="error" onClick={handleBatchDelete}>
+              删除选中 ({selectedIds.length})
+            </Button>
+          )}
+          <Button variant="contained" startIcon={<AddIcon />} onClick={() => navigate('/admin/papers/upload')}>
+            上传试卷
+          </Button>
+        </Box>
       </Box>
 
       {error && <ErrorAlert message={error} onClose={() => setError('')} />}
@@ -135,6 +170,14 @@ export function PaperListPage() {
           <Table>
             <TableHead>
               <TableRow>
+                <TableCell padding="checkbox">
+                  <Checkbox
+                    checked={papers.length > 0 && selectedIds.length === papers.length}
+                    indeterminate={selectedIds.length > 0 && selectedIds.length < papers.length}
+                    onChange={toggleSelectAll}
+                    size="small"
+                  />
+                </TableCell>
                 <TableCell>试卷名称</TableCell>
                 <TableCell>年级</TableCell>
                 <TableCell>科目</TableCell>
@@ -146,7 +189,14 @@ export function PaperListPage() {
             </TableHead>
             <TableBody>
               {papers.map(paper => (
-                <TableRow key={paper.id}>
+                <TableRow key={paper.id} hover selected={selectedIds.includes(paper.id)}>
+                  <TableCell padding="checkbox">
+                    <Checkbox
+                      checked={selectedIds.includes(paper.id)}
+                      onChange={() => toggleSelect(paper.id)}
+                      size="small"
+                    />
+                  </TableCell>
                   <TableCell>{paper.title}</TableCell>
                   <TableCell>{ALL_GRADE_MAP[paper.grade] || paper.grade}</TableCell>
                   <TableCell>
@@ -169,7 +219,7 @@ export function PaperListPage() {
               ))}
               {papers.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} align="center">暂无数据</TableCell>
+                  <TableCell colSpan={8} align="center">暂无数据</TableCell>
                 </TableRow>
               )}
             </TableBody>

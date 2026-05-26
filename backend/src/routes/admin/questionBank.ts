@@ -193,6 +193,25 @@ router.post('/batch', upload.single('file'), (req, res) => {
 })
 
 /**
+ * DELETE /api/admin/question-bank/batch
+ * 批量删除题目
+ */
+router.delete('/batch', (req, res) => {
+  try {
+    const { ids } = req.body
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      res.status(400).json(errorResponse(1000, '请提供要删除的题目ID列表'))
+      return
+    }
+    const count = questionBankModel.batchDelete(ids)
+    res.json(apiResponse({ count }, `成功删除 ${count} 道题目`))
+  } catch (e: unknown) {
+    const err = e as Error
+    res.status(500).json(errorResponse(1000, err.message))
+  }
+})
+
+/**
  * DELETE /api/admin/question-bank/:id
  * 删除题目
  */

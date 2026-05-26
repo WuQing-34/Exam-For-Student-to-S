@@ -236,4 +236,19 @@ export const paperModel = {
     saveDatabase()
     return true
   },
+
+  /**
+   * 批量删除试卷（含级联删除）
+   */
+  batchDelete(ids: number[]): number {
+    if (ids.length === 0) return 0
+    const db = getDb()
+    const placeholders = ids.map(() => '?').join(',')
+    // 级联删除关联数据
+    db.run(`DELETE FROM question WHERE paper_id IN (${placeholders})`, ids)
+    db.run(`DELETE FROM subject_section WHERE paper_id IN (${placeholders})`, ids)
+    db.run(`DELETE FROM paper WHERE id IN (${placeholders})`, ids)
+    saveDatabase()
+    return ids.length
+  },
 }

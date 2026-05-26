@@ -62,6 +62,11 @@ export const paperApi = {
     return api.delete<ApiResponse<null>>(`/admin/papers/${id}`)
   },
 
+  /** 批量删除试卷 */
+  batchDelete(ids: number[]) {
+    return api.delete<ApiResponse<{ count: number }>>('/admin/papers/batch', { data: { ids } })
+  },
+
   /** 更新题目内容（含图片标记） */
   updateQuestionContent(questionId: number, content: string) {
     return api.put<ApiResponse<null>>(`/admin/papers/questions/${questionId}/content`, { content })

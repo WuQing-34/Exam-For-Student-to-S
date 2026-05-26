@@ -3,7 +3,7 @@ import {
   Box, Typography, Button, Card, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, Paper, Chip, IconButton,
   Dialog, DialogTitle, DialogContent, DialogActions,
-  TextField, MenuItem, Snackbar, CircularProgress,
+  TextField, MenuItem, Snackbar, CircularProgress, Checkbox,
 } from '@mui/material'
 import DeleteIcon from '@mui/icons-material/Delete'
 import AddIcon from '@mui/icons-material/Add'
@@ -48,6 +48,33 @@ export function QuestionBankPage() {
   const [importLoading, setImportLoading] = useState(false)
   const [snackOpen, setSnackOpen] = useState(false)
   const [snackMsg, setSnackMsg] = useState('')
+
+  // 批量选择
+  const [selectedIds, setSelectedIds] = useState<number[]>([])
+
+  const toggleSelect = (id: number) => {
+    setSelectedIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    )
+  }
+
+  const toggleSelectAll = () => {
+    const allIds = questions.map(q => q.id)
+    setSelectedIds(prev => prev.length === allIds.length ? [] : allIds)
+  }
+
+  const handleBatchDelete = async () => {
+    if (selectedIds.length === 0) return
+    if (!confirm(`确定删除选中的 ${selectedIds.length} 道题目？此操作不可撤销。`)) return
+    try {
+      await questionBankApi.batchDelete(selectedIds)
+      setSelectedIds([])
+      fetchQuestions()
+      fetchStats()
+      setSnackMsg(`成功删除 ${selectedIds.length} 道题目`)
+      setSnackOpen(true)
+    } catch { /* ignore */ }
+  }
 
   const fetchQuestions = async () => {
     setLoading(true)
@@ -183,6 +210,11 @@ export function QuestionBankPage() {
           <MenuItem value="fill">填空题</MenuItem>
         </TextField>
         <Box sx={{ flex: 1 }} />
+        {selectedIds.length > 0 && (
+          <Button variant="contained" color="error" onClick={handleBatchDelete}>
+            删除选中 ({selectedIds.length})
+          </Button>
+        )}
         <Button variant="text" startIcon={<DownloadIcon />} href="/题库批量导入模板.xlsx" download>
           下载模板
         </Button>
@@ -199,6 +231,14 @@ export function QuestionBankPage() {
         <Table size="small">
           <TableHead>
             <TableRow>
+              <TableCell padding="checkbox">
+                <Checkbox
+                  checked={questions.length > 0 && selectedIds.length === questions.length}
+                  indeterminate={selectedIds.length > 0 && selectedIds.length < questions.length}
+                  onChange={toggleSelectAll}
+                  size="small"
+                />
+              </TableCell>
               <TableCell>科目</TableCell>
               <TableCell>题型</TableCell>
               <TableCell>题目</TableCell>
@@ -209,11 +249,18 @@ export function QuestionBankPage() {
           </TableHead>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={6} align="center"><CircularProgress /></TableCell></TableRow>
+              <TableRow><TableCell colSpan={7} align="center"><CircularProgress /></TableCell></TableRow>
             ) : questions.length === 0 ? (
-              <TableRow><TableCell colSpan={6} align="center" sx={{ py: 4, color: '#a0aec0' }}>暂无题目，请添加</TableCell></TableRow>
+              <TableRow><TableCell colSpan={7} align="center" sx={{ py: 4, color: '#a0aec0' }}>暂无题目，请添加</TableCell></TableRow>
             ) : questions.map(q => (
-              <TableRow key={q.id}>
+              <TableRow key={q.id} hover selected={selectedIds.includes(q.id)}>
+                <TableCell padding="checkbox">
+                  <Checkbox
+                    checked={selectedIds.includes(q.id)}
+                    onChange={() => toggleSelect(q.id)}
+                    size="small"
+                  />
+                </TableCell>
                 <TableCell>{SUBJECT_MAP[q.subject as Subject] || q.subject}</TableCell>
                 <TableCell><Chip label={q.type === 'choice' ? '选择' : '填空'} size="small" /></TableCell>
                 <TableCell sx={{ maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

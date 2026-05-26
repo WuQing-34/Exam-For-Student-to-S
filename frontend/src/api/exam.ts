@@ -245,4 +245,8 @@ export const questionBankApi = {
   delete(id: number) {
     return api.delete<ApiResponse<null>>(`/admin/question-bank/${id}`)
   },
+
+  batchDelete(ids: number[]) {
+    return api.delete<ApiResponse<{ count: number }>>('/admin/question-bank/batch', { data: { ids } })
+  },
 }
