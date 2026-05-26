@@ -72,30 +72,61 @@ export function ExamPage() {
     loadExam()
   }, [loadExam])
 
-  // ─── 自动保存草稿（每 30 秒）───
-  useEffect(() => {
-    if (!examId || loading) return
-    const timer = setInterval(async () => {
-      if (!examId) return
+  // ─── 保存草稿（带重试）───
+  const doSaveDraft = useCallback(async () => {
+    if (!examId || submitting) return
+    // 最多重试 2 次
+    for (let attempt = 0; attempt < 2; attempt++) {
       try {
         await studentExamApi.saveDraft(examId, answersRef.current)
         setLastSaved(new Date())
+        return
       } catch {
-        // 静默失败，不打扰用户
+        if (attempt === 0) {
+          // 第一次失败等 1 秒重试
+          await new Promise(r => setTimeout(r, 1000))
+        }
       }
-    }, 30000)
-    return () => clearInterval(timer)
-  }, [examId, loading])
+    }
+  }, [examId, submitting])
 
-  // ─── beforeunload：拦截浏览器关闭/刷新 ───
+  // ─── 自动保存草稿（每 30 秒）───
   useEffect(() => {
+    if (!examId || loading) return
+    const timer = setInterval(() => { doSaveDraft() }, 30000)
+    return () => clearInterval(timer)
+  }, [examId, loading, doSaveDraft])
+
+  // ─── 标签页切换时即时保存 ───
+  useEffect(() => {
+    if (!examId || loading) return
+    const handleVisibility = () => {
+      if (document.hidden) {
+        doSaveDraft()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
+  }, [examId, loading, doSaveDraft])
+
+  // ─── 退出登录前保存草稿（响应 StudentLayout 事件）───
+  useEffect(() => {
+    if (!examId) return
+    const handler = () => { doSaveDraft() }
+    window.addEventListener('exam:save-draft', handler)
+    return () => window.removeEventListener('exam:save-draft', handler)
+  }, [examId, doSaveDraft])
+
+  // ─── beforeunload：拦截浏览器关闭/刷新（提交中时解除） ───
+  useEffect(() => {
+    if (submitting) return // 提交中不拦截，避免干扰 XHR
     const handler = (e: BeforeUnloadEvent) => {
       e.preventDefault()
       e.returnValue = '考试进行中，离开将丢失未保存的答案，确定要离开吗？'
     }
     window.addEventListener('beforeunload', handler)
     return () => window.removeEventListener('beforeunload', handler)
-  }, [])
+  }, [submitting])
 
   // ─── useBlocker：拦截 SPA 路由跳转 ───
   const blocker = useBlocker(
@@ -124,9 +155,7 @@ export function ExamPage() {
 
   // ─── 离开前保存草稿并确认离开 ───
   const handleBlockerConfirm = async () => {
-    if (examId) {
-      try { await studentExamApi.saveDraft(examId, answersRef.current) } catch { /* 静默 */ }
-    }
+    await doSaveDraft()
     blocker.proceed?.()
   }
 

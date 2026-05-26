@@ -24,8 +24,12 @@ export function StudentLayout() {
     }
   }
 
-  const handleLogoutConfirm = () => {
+  const handleLogoutConfirm = async () => {
     setLogoutConfirmOpen(false)
+    // 触发考试页保存草稿（如果正在考试中）
+    window.dispatchEvent(new CustomEvent('exam:save-draft'))
+    // 给保存操作一点时间
+    await new Promise(r => setTimeout(r, 300))
     logout()
     navigate('/login')
   }

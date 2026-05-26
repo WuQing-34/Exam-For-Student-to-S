@@ -347,6 +347,42 @@ router.get('/exams/results', verifyStudentSession, (req, res) => {
 })
 
 /**
+ * POST /api/student/exams/:id/save
+ * 保存答案草稿（考试中途自动保存）
+ */
+router.post('/exams/:id/save', verifyStudentSession, (req, res) => {
+  try {
+    const examId = parseInt(req.params.id)
+    if (isNaN(examId)) {
+      res.status(400).json(errorResponse(1000, '无效的考试ID'))
+      return
+    }
+    const { answers } = req.body
+    const session = req.studentSession!
+
+    const exam = studentExamModel.findById(examId)
+    if (!exam) {
+      res.status(404).json(errorResponse(1003, '考试记录不存在'))
+      return
+    }
+    if (exam.student_id !== session.studentId) {
+      res.status(403).json(errorResponse(1002, '无权访问'))
+      return
+    }
+    if (exam.status === 'submitted') {
+      res.json(apiResponse(null, '已提交，无需保存草稿'))
+      return
+    }
+
+    studentExamModel.saveDraft(examId, JSON.stringify(answers || []))
+    res.json(apiResponse({ saved: true }, '草稿已保存'))
+  } catch (e: unknown) {
+    const err = e as Error
+    res.status(500).json(errorResponse(1000, err.message))
+  }
+})
+
+/**
  * GET /api/student/exams/:id
  * 获取考试题目 (v2.0)
  */
@@ -399,42 +435,6 @@ router.get('/exams/:id', verifyStudentSession, (req, res) => {
   } catch (e: unknown) {
     const err = e as Error
     res.status(500).json(errorResponse(1000, err.message))
-  }
-})
-
-/**
- * POST /api/student/exams/:id/save
- * 保存考试草稿答案（不提交）
- */
-router.post('/exams/:id/save', verifyStudentSession, (req, res) => {
-  try {
-    const examId = parseInt(req.params.id)
-    if (isNaN(examId)) {
-      res.status(400).json(errorResponse(1000, '无效的考试ID'))
-      return
-    }
-    const { answers } = req.body
-    const session = req.studentSession!
-
-    const exam = studentExamModel.findById(examId)
-    if (!exam) {
-      res.status(404).json(errorResponse(1003, '考试记录不存在'))
-      return
-    }
-    if (exam.student_id !== session.studentId) {
-      res.status(403).json(errorResponse(1002, '无权访问'))
-      return
-    }
-    if (exam.status === 'submitted') {
-      res.status(400).json(errorResponse(4002, '该科目已提交，无法保存草稿'))
-      return
-    }
-
-    studentExamModel.saveDraft(examId, JSON.stringify(answers || []))
-    res.json(apiResponse(null, '草稿已保存'))
-  } catch (e: unknown) {
-    const err = e as Error
-    res.status(400).json(errorResponse(1000, err.message))
   }
 })
 
