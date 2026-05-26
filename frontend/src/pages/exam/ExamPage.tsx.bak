@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { useNavigate, useParams, useLocation, useBlocker } from 'react-router-dom'
+import { useState, useEffect, useCallback } from 'react'
+import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import {
   Box, Typography, Button, Radio, RadioGroup, FormControlLabel,
   FormControl, TextField, LinearProgress, CircularProgress,
@@ -30,14 +30,9 @@ export function ExamPage() {
   const [error, setError] = useState('')
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [loadedExamId, setLoadedExamId] = useState<number | null>(null)
-  const [lastSaved, setLastSaved] = useState<Date | null>(null)
-  // 用 ref 持有最新答案，避免定时器闭包问题
-  const answersRef = useRef(answers)
-  useEffect(() => { answersRef.current = answers }, [answers])
 
   const subjectName = SUBJECT_MAP[subject as keyof typeof SUBJECT_MAP] || subject || ''
 
-  // ─── 加载考试（含已保存草稿答案恢复）───
   const loadExam = useCallback(async () => {
     if (!examId || examId === loadedExamId) return
     setLoading(true)
@@ -46,16 +41,12 @@ export function ExamPage() {
     try {
       const res = await studentExamApi.getExamContent(examId)
       if (res.data.code === 0 && res.data.data) {
+        // 已提交的考试 → 直接跳转成绩页
         if (res.data.data.status === 'submitted') {
           navigate('/results', { replace: true })
           return
         }
         setQuestions(res.data.data.questions)
-        // 恢复草稿答案
-        const saved = res.data.data.savedAnswers
-        if (saved && saved.length > 0) {
-          setAnswers(saved)
-        }
         setLoadedExamId(examId)
       } else {
         setError(res.data.message || '考试记录不存在')
@@ -66,42 +57,11 @@ export function ExamPage() {
     } finally {
       setLoading(false)
     }
-  }, [examId, loadedExamId, navigate])
+  }, [examId, loadedExamId])
 
   useEffect(() => {
     loadExam()
   }, [loadExam])
-
-  // ─── 自动保存草稿（每 30 秒）───
-  useEffect(() => {
-    if (!examId || loading) return
-    const timer = setInterval(async () => {
-      if (!examId) return
-      try {
-        await studentExamApi.saveDraft(examId, answersRef.current)
-        setLastSaved(new Date())
-      } catch {
-        // 静默失败，不打扰用户
-      }
-    }, 30000)
-    return () => clearInterval(timer)
-  }, [examId, loading])
-
-  // ─── beforeunload：拦截浏览器关闭/刷新 ───
-  useEffect(() => {
-    const handler = (e: BeforeUnloadEvent) => {
-      e.preventDefault()
-      e.returnValue = '考试进行中，离开将丢失未保存的答案，确定要离开吗？'
-    }
-    window.addEventListener('beforeunload', handler)
-    return () => window.removeEventListener('beforeunload', handler)
-  }, [])
-
-  // ─── useBlocker：拦截 SPA 路由跳转 ───
-  const blocker = useBlocker(
-    ({ currentLocation, nextLocation }) =>
-      currentLocation.pathname !== nextLocation.pathname && !submitting
-  )
 
   const handleAnswerChange = (questionId: number, answer: string) => {
     setAnswers(prev => {
@@ -122,18 +82,6 @@ export function ExamPage() {
   const answeredCount = answers.filter(a => a.answer.trim()).length
   const progress = questions.length > 0 ? (answeredCount / questions.length) * 100 : 0
 
-  // ─── 离开前保存草稿并确认离开 ───
-  const handleBlockerConfirm = async () => {
-    if (examId) {
-      try { await studentExamApi.saveDraft(examId, answersRef.current) } catch { /* 静默 */ }
-    }
-    blocker.proceed?.()
-  }
-
-  const handleBlockerCancel = () => {
-    blocker.reset?.()
-  }
-
   const handleSubmit = async () => {
     if (!examId) return
     setConfirmOpen(false)
@@ -141,11 +89,13 @@ export function ExamPage() {
     try {
       const res = await studentExamApi.submitExam(examId, answers)
       if (res.data.code === 0) {
+        // 获取所有科目状态，找下一个未考科目
         const subjectsRes = await studentExamApi.getSubjects()
         if (subjectsRes.data.code === 0 && subjectsRes.data.data) {
           const list = subjectsRes.data.data.subjects
           const nextSubject = list.find(s => s.status !== 'submitted')
           if (nextSubject) {
+            // 自动开始下一科
             try {
               const startRes = await studentExamApi.startExam(nextSubject.subject)
               if (startRes.data.code === 0 && startRes.data.data) {
@@ -156,9 +106,11 @@ export function ExamPage() {
                 return
               }
             } catch { /* 自动开始失败，回科目列表 */ }
+            // 自动开始失败，回到科目列表让用户手动开始
             navigate('/subjects', { replace: true })
             return
           }
+          // 全部考完 → 成绩汇总
           navigate('/results', { replace: true })
         } else {
           navigate('/subjects', { replace: true })
@@ -184,16 +136,9 @@ export function ExamPage() {
       <Paper sx={{ p: 2, mb: 3, borderRadius: 2 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
           <Typography variant="h6" fontWeight={700}>{subjectName} 考试</Typography>
-          <Box sx={{ textAlign: 'right' }}>
-            <Typography variant="body2" color="text.secondary">
-              {answeredCount}/{questions.length} 已答
-            </Typography>
-            {lastSaved && (
-              <Typography variant="caption" color="success.main">
-                已自动保存 {lastSaved.toLocaleTimeString()}
-              </Typography>
-            )}
-          </Box>
+          <Typography variant="body2" color="text.secondary">
+            {answeredCount}/{questions.length} 已答
+          </Typography>
         </Box>
         <LinearProgress variant="determinate" value={progress} sx={{ height: 6, borderRadius: 3 }} />
       </Paper>
@@ -254,7 +199,7 @@ export function ExamPage() {
         {submitting ? '提交中...' : '提交考试'}
       </Button>
 
-      {/* 提交确认弹窗 */}
+      {/* 确认弹窗 */}
       <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)}>
         <DialogTitle>确认提交</DialogTitle>
         <DialogContent>
@@ -268,25 +213,6 @@ export function ExamPage() {
           <Button onClick={() => setConfirmOpen(false)}>取消</Button>
           <Button onClick={handleSubmit} variant="contained" color="primary">
             确认提交
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* 路由离开确认弹窗（useBlocker） */}
-      <Dialog open={blocker.state === 'blocked'} onClose={handleBlockerCancel}>
-        <DialogTitle>⚠️ 确认离开考试？</DialogTitle>
-        <DialogContent>
-          <Typography>
-            您正在考试中，离开前将自动保存答案草稿。
-            下次回来可从第三方继续作答。确定要离开吗？
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleBlockerCancel} variant="contained" color="primary">
-            继续答题
-          </Button>
-          <Button onClick={handleBlockerConfirm} color="warning">
-            保存并离开
           </Button>
         </DialogActions>
       </Dialog>

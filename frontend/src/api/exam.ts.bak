@@ -78,7 +78,6 @@ export const studentExamApi = {
         options: Array<{ label: string; text: string }> | null
       }>
       status: string
-      savedAnswers: Array<{ questionId: number; answer: string }>
     }>>(`/student/exams/${examId}`)
   },
 
@@ -92,11 +91,6 @@ export const studentExamApi = {
       scoreRate: number
       sClassQualified: boolean
     }>>(`/student/exams/${examId}/submit`, { answers })
-  },
-
-  /** 保存考试草稿答案（不提交） */
-  saveDraft(examId: number, answers: Array<{ questionId: number; answer: string }>) {
-    return api.post<ApiResponse<null>>(`/student/exams/${examId}/save`, { answers })
   },
 
   /** 获取所有科目成绩汇总 */

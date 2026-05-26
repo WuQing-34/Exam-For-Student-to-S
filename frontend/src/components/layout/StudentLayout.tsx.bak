@@ -1,31 +1,14 @@
-import { Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { AppBar, Toolbar, Typography, Button, Box, Avatar, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material'
+import { Outlet, useNavigate } from 'react-router-dom'
+import { AppBar, Toolbar, Typography, Button, Box, Avatar } from '@mui/material'
 import SchoolIcon from '@mui/icons-material/School'
 import LogoutIcon from '@mui/icons-material/Logout'
 import { useStudentStore } from '../../store/studentStore'
-import { useState } from 'react'
 
 export function StudentLayout() {
   const navigate = useNavigate()
-  const location = useLocation()
   const { name, logout } = useStudentStore()
-  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false)
 
-  // 是否在考试中（路径为 /exam/xxx）
-  const isInExam = location.pathname.startsWith('/exam/')
-
-  const handleLogoutClick = () => {
-    if (isInExam) {
-      // 考试中需要二次确认
-      setLogoutConfirmOpen(true)
-    } else {
-      logout()
-      navigate('/login')
-    }
-  }
-
-  const handleLogoutConfirm = () => {
-    setLogoutConfirmOpen(false)
+  const handleLogout = () => {
     logout()
     navigate('/login')
   }
@@ -80,7 +63,7 @@ export function StudentLayout() {
                 {name}
               </Typography>
               <Button
-                onClick={handleLogoutClick}
+                onClick={handleLogout}
                 size="small"
                 startIcon={<LogoutIcon sx={{ fontSize: 16 }} />}
                 sx={{
@@ -102,26 +85,6 @@ export function StudentLayout() {
       <Box sx={{ p: { xs: 2, sm: 3 }, maxWidth: 800, mx: 'auto' }}>
         <Outlet />
       </Box>
-
-      {/* 考试中退出二次确认弹窗 */}
-      <Dialog open={logoutConfirmOpen} onClose={() => setLogoutConfirmOpen(false)}>
-        <DialogTitle>⚠️ 考试进行中</DialogTitle>
-        <DialogContent>
-          <Typography>
-            您正在考试中，退出登录将离开考试页面。
-            您的答案草稿已定期自动保存，下次登录后可继续作答。
-            确定要退出吗？
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setLogoutConfirmOpen(false)} variant="contained" color="primary">
-            继续答题
-          </Button>
-          <Button onClick={handleLogoutConfirm} color="warning">
-            退出登录
-          </Button>
-        </DialogActions>
-      </Dialog>
     </Box>
   )
 }
