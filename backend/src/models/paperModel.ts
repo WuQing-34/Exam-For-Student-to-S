@@ -1,4 +1,5 @@
-import { getDb, saveDatabase } from './db'
+import { getPool } from './db'
+import { ResultSetHeader, RowDataPacket } from 'mysql2'
 
 export interface Paper {
   id: number
@@ -22,7 +23,7 @@ export interface Question {
   correct_answer: string
   score: number
   order_num: number
-  subject?: string  // v1.1
+  subject?: string
 }
 
 export interface QuestionOption {
@@ -30,26 +31,8 @@ export interface QuestionOption {
   text: string
 }
 
-function toObjects<T>(result: { columns: string[]; values: unknown[][] }[]): T[] {
-  if (!result || result.length === 0) return []
-  const { columns, values } = result[0]
-  return values.map(row => {
-    const obj: Record<string, unknown> = {}
-    columns.forEach((col, i) => { obj[col] = row[i] })
-    return obj as T
-  })
-}
-
-function toObject<T>(result: { columns: string[]; values: unknown[][] }[]): T | null {
-  const list = toObjects<T>(result)
-  return list[0] ?? null
-}
-
 export const paperModel = {
-  /**
-   * 创建试卷（v1.1: 支持多科目）
-   */
-  create(data: {
+  async create(data: {
     title: string
     grade: string
     subject: string
@@ -58,127 +41,83 @@ export const paperModel = {
     created_by: number
     subjects_included?: string
     total_full_score?: number
-  }): number {
-    const db = getDb()
-    db.run(
+  }): Promise<number> {
+    const pool = getPool()
+    const [result] = await pool.execute<ResultSetHeader>(
       `INSERT INTO paper (title, grade, subject, total_score, total_time, created_by, subjects_included, total_full_score)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        data.title,
-        data.grade,
-        data.subject,
-        data.total_score,
-        data.total_time ?? 60,
-        data.created_by,
-        data.subjects_included ?? null,
-        data.total_full_score ?? null,
+        data.title, data.grade, data.subject, data.total_score,
+        data.total_time ?? 60, data.created_by,
+        data.subjects_included ?? null, data.total_full_score ?? null,
       ]
     )
-    const lastId = db.exec('SELECT last_insert_rowid() as id')[0].values[0][0] as number
-    saveDatabase()
-    return lastId
+    return result.insertId
   },
 
-  /**
-   * 创建科目分段（v1.1）
-   */
-  createSubjectSection(data: {
+  async createSubjectSection(data: {
     paper_id: number
     subject: string
     subject_name: string
     subject_order: number
     total_score: number
     question_count: number
-  }): number {
-    const db = getDb()
-    db.run(
+  }): Promise<number> {
+    const pool = getPool()
+    const [result] = await pool.execute<ResultSetHeader>(
       `INSERT INTO subject_section (paper_id, subject, subject_name, subject_order, total_score, question_count)
        VALUES (?, ?, ?, ?, ?, ?)`,
       [data.paper_id, data.subject, data.subject_name, data.subject_order, data.total_score, data.question_count]
     )
-    const lastId = db.exec('SELECT last_insert_rowid() as id')[0].values[0][0] as number
-    return lastId
+    return result.insertId
   },
 
-  /**
-   * 获取试卷的科目分段（v1.1）
-   */
-  findSectionsByPaperId(paperId: number): Array<{
-    id: number
-    paper_id: number
-    subject: string
-    subject_name: string
-    subject_order: number
-    total_score: number
-    question_count: number
-  }> {
-    const db = getDb()
-    const result = db.exec(
+  async findSectionsByPaperId(paperId: number): Promise<Array<{
+    id: number; paper_id: number; subject: string; subject_name: string
+    subject_order: number; total_score: number; question_count: number
+  }>> {
+    const pool = getPool()
+    const [rows] = await pool.execute<RowDataPacket[]>(
       'SELECT * FROM subject_section WHERE paper_id = ? ORDER BY subject_order ASC',
       [paperId]
     )
-    return toObjects(result)
+    return rows as any[]
   },
 
-  /**
-   * 创建题目
-   */
-  createQuestion(data: {
-    paper_id: number
-    type: string
-    content: string
-    options: string | null
-    correct_answer: string
-    score: number
-    order_num: number
-    subject?: string  // v1.1
-  }): number {
-    const db = getDb()
-    db.run(
+  async createQuestion(data: {
+    paper_id: number; type: string; content: string; options: string | null
+    correct_answer: string; score: number; order_num: number; subject?: string
+  }): Promise<number> {
+    const pool = getPool()
+    const [result] = await pool.execute<ResultSetHeader>(
       `INSERT INTO question (paper_id, type, content, options, correct_answer, score, order_num, subject)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [data.paper_id, data.type, data.content, data.options, data.correct_answer, data.score, data.order_num, data.subject ?? null]
     )
-    const lastId = db.exec('SELECT last_insert_rowid() as id')[0].values[0][0] as number
-    return lastId
+    return result.insertId
   },
 
-  /**
-   * 批量创建题目（事务）
-   */
-  createQuestionsBatch(
+  async createQuestionsBatch(
     paperId: number,
     questions: Array<{
-      type: string
-      content: string
-      options: string | null
-      correct_answer: string
-      score: number
-      order_num: number
-      subject?: string  // v1.1
+      type: string; content: string; options: string | null
+      correct_answer: string; score: number; order_num: number; subject?: string
     }>
-  ): void {
-    const db = getDb()
+  ): Promise<void> {
+    const pool = getPool()
     for (const q of questions) {
-      db.run(
+      await pool.execute(
         `INSERT INTO question (paper_id, type, content, options, correct_answer, score, order_num, subject)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [paperId, q.type, q.content, q.options, q.correct_answer, q.score, q.order_num, q.subject ?? null]
       )
     }
-    saveDatabase()
   },
 
-  /**
-   * 获取试卷列表（分页+筛选）
-   */
-  findAll(params: {
-    grade?: string
-    subject?: string
-    page?: number
-    pageSize?: number
-  }): { list: Paper[]; total: number } {
-    const db = getDb()
+  async findAll(params: {
+    grade?: string; subject?: string; page?: number; pageSize?: number
+  }): Promise<{ list: Paper[]; total: number }> {
+    const pool = getPool()
     const page = params.page ?? 1
     const pageSize = params.pageSize ?? 20
     const offset = (page - 1) * pageSize
@@ -189,66 +128,58 @@ export const paperModel = {
     if (params.grade) { where += ' AND grade = ?'; values.push(params.grade) }
     if (params.subject) { where += ' AND subject = ?'; values.push(params.subject) }
 
-    const countResult = db.exec(`SELECT COUNT(*) as total FROM paper ${where}`, values as (string | number)[])
-    const total = (countResult[0]?.values[0]?.[0] as number) ?? 0
+    const [countRows] = await pool.execute<RowDataPacket[]>(`SELECT COUNT(*) as total FROM paper ${where}`, values as any)
+    const total = (countRows[0] as { total: number }).total
 
-    const listResult = db.exec(
-      `SELECT * FROM paper ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
-      [...(values as (string | number)[]), pageSize, offset]
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT * FROM paper ${where} ORDER BY created_at DESC LIMIT ${pageSize} OFFSET ${offset}`,
+      values as any
     )
-    const list = toObjects<Paper>(listResult)
-
-    return { list, total }
+    return { list: rows as Paper[], total }
   },
 
-  /**
-   * 根据 ID 获取试卷
-   */
-  findById(id: number): Paper | null {
-    const db = getDb()
-    const result = db.exec('SELECT * FROM paper WHERE id = ?', [id])
-    return toObject<Paper>(result)
+  async findById(id: number): Promise<Paper | null> {
+    const pool = getPool()
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      'SELECT * FROM paper WHERE id = ?', [id]
+    )
+    return (rows[0] as Paper) ?? null
   },
 
-  /**
-   * 获取试卷的题目列表
-   */
-  findQuestionsByPaperId(paperId: number): Question[] {
-    const db = getDb()
-    const result = db.exec(
+  async findQuestionsByPaperId(paperId: number): Promise<Question[]> {
+    const pool = getPool()
+    const [rows] = await pool.execute<RowDataPacket[]>(
       `SELECT * FROM question WHERE paper_id = ? ORDER BY subject ASC, order_num ASC`,
       [paperId]
     )
-    return toObjects<Question>(result)
+    return rows as Question[]
   },
 
-  /**
-   * 删除试卷（CASCADE 需手动删除）
-   */
-  delete(id: number): boolean {
-    const db = getDb()
-    // 先删除题目
-    db.run('DELETE FROM question WHERE paper_id = ?', [id])
-    // 删除科目分段
-    db.run('DELETE FROM subject_section WHERE paper_id = ?', [id])
-    // 再删除试卷
-    db.run('DELETE FROM paper WHERE id = ?', [id])
-    saveDatabase()
-    return true
+  async updateQuestionContent(id: number, content: string): Promise<boolean> {
+    const pool = getPool()
+    const [result] = await pool.execute<ResultSetHeader>(
+      'UPDATE question SET content = ? WHERE id = ?', [content, id]
+    )
+    return result.affectedRows > 0
   },
 
-  /**
-   * 批量删除试卷（含级联删除）
-   */
-  batchDelete(ids: number[]): number {
+  async delete(id: number): Promise<boolean> {
+    const pool = getPool()
+    await pool.execute('DELETE FROM question WHERE paper_id = ?', [id])
+    await pool.execute('DELETE FROM subject_section WHERE paper_id = ?', [id])
+    const [result] = await pool.execute<ResultSetHeader>(
+      'DELETE FROM paper WHERE id = ?', [id]
+    )
+    return result.affectedRows > 0
+  },
+
+  async batchDelete(ids: number[]): Promise<number> {
     if (ids.length === 0) return 0
-    const db = getDb()
+    const pool = getPool()
     const placeholders = ids.map(() => '?').join(',')
-    // 级联删除关联数据
-    db.run(`DELETE FROM question WHERE paper_id IN (${placeholders})`, ids)
-    db.run(`DELETE FROM subject_section WHERE paper_id IN (${placeholders})`, ids)
-    db.run(`DELETE FROM paper WHERE id IN (${placeholders})`, ids)
-    saveDatabase()
+    await pool.execute(`DELETE FROM question WHERE paper_id IN (${placeholders})`, ids)
+    await pool.execute(`DELETE FROM subject_section WHERE paper_id IN (${placeholders})`, ids)
+    await pool.execute(`DELETE FROM paper WHERE id IN (${placeholders})`, ids)
     return ids.length
   },
 }

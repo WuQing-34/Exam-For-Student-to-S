@@ -1,4 +1,5 @@
-import { getDb, saveDatabase } from './db'
+import { getPool } from './db'
+import { ResultSetHeader, RowDataPacket } from 'mysql2'
 
 export interface QuestionBankItem {
   id: number
@@ -11,132 +12,86 @@ export interface QuestionBankItem {
   created_at: string
 }
 
-function toObjects<T>(result: { columns: string[]; values: unknown[][] }[]): T[] {
-  if (!result || result.length === 0) return []
-  const { columns, values } = result[0]
-  return values.map(row => {
-    const obj: Record<string, unknown> = {}
-    columns.forEach((col, i) => { obj[col] = row[i] })
-    return obj as T
-  })
-}
-
 export const questionBankModel = {
-  /**
-   * 添加题目
-   */
-  create(data: {
-    subject: string
-    type: 'choice' | 'fill'
-    content: string
-    options?: string | null
-    correct_answer: string
-    created_by?: number
-  }): QuestionBankItem {
-    const db = getDb()
-    db.run(
+  async create(data: {
+    subject: string; type: 'choice' | 'fill'; content: string
+    options?: string | null; correct_answer: string; created_by?: number
+  }): Promise<QuestionBankItem> {
+    const pool = getPool()
+    const [result] = await pool.execute<ResultSetHeader>(
       'INSERT INTO question_bank (subject, type, content, options, correct_answer, created_by) VALUES (?, ?, ?, ?, ?, ?)',
       [data.subject, data.type, data.content, data.options ?? null, data.correct_answer, data.created_by ?? null]
     )
-    const lastId = db.exec('SELECT last_insert_rowid() as id')[0].values[0][0] as number
-    saveDatabase()
-    const result = db.exec('SELECT * FROM question_bank WHERE id = ?', [lastId])
-    return toObjects<QuestionBankItem>(result)[0]
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      'SELECT * FROM question_bank WHERE id = ?', [result.insertId]
+    )
+    return rows[0] as QuestionBankItem
   },
 
-  /**
-   * 批量添加题目
-   */
-  batchCreate(questions: Array<{
-    subject: string
-    type: 'choice' | 'fill'
-    content: string
-    options?: string | null
-    correct_answer: string
-    created_by?: number
-  }>): number {
-    const db = getDb()
+  async batchCreate(questions: Array<{
+    subject: string; type: 'choice' | 'fill'; content: string
+    options?: string | null; correct_answer: string; created_by?: number
+  }>): Promise<number> {
+    const pool = getPool()
     let count = 0
     for (const q of questions) {
-      db.run(
+      await pool.execute(
         'INSERT INTO question_bank (subject, type, content, options, correct_answer, created_by) VALUES (?, ?, ?, ?, ?, ?)',
         [q.subject, q.type, q.content, q.options ?? null, q.correct_answer, q.created_by ?? null]
       )
       count++
     }
-    saveDatabase()
     return count
   },
 
-  /**
-   * 删除题目
-   */
-  delete(id: number): boolean {
-    const db = getDb()
-    db.run('DELETE FROM question_bank WHERE id = ?', [id])
-    saveDatabase()
-    return true
+  async delete(id: number): Promise<boolean> {
+    const pool = getPool()
+    const [result] = await pool.execute<ResultSetHeader>(
+      'DELETE FROM question_bank WHERE id = ?', [id]
+    )
+    return result.affectedRows > 0
   },
 
-  /**
-   * 批量删除题目
-   */
-  batchDelete(ids: number[]): number {
+  async batchDelete(ids: number[]): Promise<number> {
     if (ids.length === 0) return 0
-    const db = getDb()
+    const pool = getPool()
     const placeholders = ids.map(() => '?').join(',')
-    db.run(`DELETE FROM question_bank WHERE id IN (${placeholders})`, ids)
-    saveDatabase()
+    await pool.execute(`DELETE FROM question_bank WHERE id IN (${placeholders})`, ids)
     return ids.length
   },
 
-  /**
-   * 按科目查询题目
-   */
-  findBySubject(subject: string, type?: string): QuestionBankItem[] {
-    const db = getDb()
+  async findBySubject(subject: string, type?: string): Promise<QuestionBankItem[]> {
+    const pool = getPool()
     let sql = 'SELECT * FROM question_bank WHERE subject = ?'
     const params: string[] = [subject]
     if (type) { sql += ' AND type = ?'; params.push(type) }
     sql += ' ORDER BY id DESC'
-    const result = db.exec(sql, params)
-    return toObjects<QuestionBankItem>(result)
+    const [rows] = await pool.execute<RowDataPacket[]>(sql, params)
+    return rows as QuestionBankItem[]
   },
 
-  /**
-   * 统计数量
-   */
-  countBySubject(subject: string, type?: string): number {
-    const db = getDb()
+  async countBySubject(subject: string, type?: string): Promise<number> {
+    const pool = getPool()
     let sql = 'SELECT COUNT(*) as cnt FROM question_bank WHERE subject = ?'
     const params: string[] = [subject]
     if (type) { sql += ' AND type = ?'; params.push(type) }
-    const result = db.exec(sql, params)
-    return (result[0]?.values[0]?.[0] as number) ?? 0
+    const [rows] = await pool.execute<RowDataPacket[]>(sql, params)
+    return (rows[0] as { cnt: number }).cnt
   },
 
-  /**
-   * 随机抽取 N 题
-   */
-  randomPick(subject: string, type: string, count: number): QuestionBankItem[] {
-    const db = getDb()
-    const result = db.exec(
-      'SELECT * FROM question_bank WHERE subject = ? AND type = ? ORDER BY RANDOM() LIMIT ?',
-      [subject, type, count]
+  async randomPick(subject: string, type: string, count: number): Promise<QuestionBankItem[]> {
+    const pool = getPool()
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT * FROM question_bank WHERE subject = ? AND type = ? ORDER BY RAND() LIMIT ${count}`,
+      [subject, type]
     )
-    return toObjects<QuestionBankItem>(result)
+    return rows as QuestionBankItem[]
   },
 
-  /**
-   * 分页查询
-   */
-  findAll(params: {
-    subject?: string
-    type?: string
-    page?: number
-    pageSize?: number
-  }): { list: QuestionBankItem[]; total: number } {
-    const db = getDb()
+  async findAll(params: {
+    subject?: string; type?: string; page?: number; pageSize?: number
+  }): Promise<{ list: QuestionBankItem[]; total: number }> {
+    const pool = getPool()
     const page = params.page ?? 1
     const pageSize = params.pageSize ?? 50
     const offset = (page - 1) * pageSize
@@ -146,33 +101,24 @@ export const questionBankModel = {
     if (params.subject) { where += ' AND subject = ?'; values.push(params.subject) }
     if (params.type) { where += ' AND type = ?'; values.push(params.type) }
 
-    const countResult = db.exec(`SELECT COUNT(*) as total FROM question_bank ${where}`, values)
-    const total = (countResult[0]?.values[0]?.[0] as number) ?? 0
+    const [countRows] = await pool.execute<RowDataPacket[]>(`SELECT COUNT(*) as total FROM question_bank ${where}`, values)
+    const total = (countRows[0] as { total: number }).total
 
-    const listResult = db.exec(
-      `SELECT * FROM question_bank ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
-      [...values, pageSize, offset]
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT * FROM question_bank ${where} ORDER BY created_at DESC LIMIT ${pageSize} OFFSET ${offset}`,
+      values
     )
-    return { list: toObjects<QuestionBankItem>(listResult), total }
+    return { list: rows as QuestionBankItem[], total }
   },
 
-  /**
-   * 统计各科题目数量
-   */
-  statsBySubject(): { subject: string; choice: number; fill: number }[] {
-    const db = getDb()
-    const result = db.exec(
+  async statsBySubject(): Promise<{ subject: string; choice: number; fill: number }[]> {
+    const pool = getPool()
+    const [rows] = await pool.execute<RowDataPacket[]>(
       `SELECT subject, type, COUNT(*) as cnt FROM question_bank GROUP BY subject, type ORDER BY subject`
     )
-    if (!result.length) return []
     const map = new Map<string, { choice: number; fill: number }>()
-    const { columns, values } = result[0]
-    for (const row of values) {
-      const rowObj: Record<string, unknown> = {}
-      columns.forEach((c, i) => { rowObj[c] = row[i] })
-      const subject = rowObj.subject as string
-      const type = rowObj.type as string
-      const cnt = rowObj.cnt as number
+    for (const row of rows) {
+      const { subject, type, cnt } = row as { subject: string; type: string; cnt: number }
       if (!map.has(subject)) map.set(subject, { choice: 0, fill: 0 })
       const entry = map.get(subject)!
       if (type === 'choice') entry.choice = cnt

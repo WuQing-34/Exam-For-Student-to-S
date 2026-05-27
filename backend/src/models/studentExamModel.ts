@@ -1,4 +1,5 @@
-import { getDb, saveDatabase } from './db'
+import { getPool } from './db'
+import { ResultSetHeader, RowDataPacket } from 'mysql2'
 
 export interface StudentExam {
   id: number
@@ -13,109 +14,70 @@ export interface StudentExam {
   submitted_at: string | null
 }
 
-function toObjects<T>(result: { columns: string[]; values: unknown[][] }[]): T[] {
-  if (!result || result.length === 0) return []
-  const { columns, values } = result[0]
-  return values.map(row => {
-    const obj: Record<string, unknown> = {}
-    columns.forEach((col, i) => { obj[col] = row[i] })
-    return obj as T
-  })
-}
-
 export const studentExamModel = {
-  /**
-   * 创建考试记录
-   */
-  create(
-    studentId: number,
-    subject: string,
-    questionsJson: string,
-    fullScore: number = 100
-  ): StudentExam {
-    const db = getDb()
-    const now = new Date().toISOString()
-    db.run(
+  async create(
+    studentId: number, subject: string, questionsJson: string, fullScore: number = 100
+  ): Promise<StudentExam> {
+    const pool = getPool()
+    const [result] = await pool.execute<ResultSetHeader>(
       `INSERT INTO student_exam (student_id, subject, questions_json, full_score, status, started_at)
-       VALUES (?, ?, ?, ?, 'in_progress', ?)`,
-      [studentId, subject, questionsJson, fullScore, now]
+       VALUES (?, ?, ?, ?, 'in_progress', CURRENT_TIMESTAMP)`,
+      [studentId, subject, questionsJson, fullScore]
     )
-    const lastId = db.exec('SELECT last_insert_rowid() as id')[0].values[0][0] as number
-    saveDatabase()
-    const result = db.exec('SELECT * FROM student_exam WHERE id = ?', [lastId])
-    return toObjects<StudentExam>(result)[0]
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      'SELECT * FROM student_exam WHERE id = ?', [result.insertId]
+    )
+    return rows[0] as StudentExam
   },
 
-  /**
-   * 根据学生ID和科目查找考试
-   */
-  findByStudentAndSubject(studentId: number, subject: string): StudentExam | null {
-    const db = getDb()
-    const result = db.exec(
+  async findByStudentAndSubject(studentId: number, subject: string): Promise<StudentExam | null> {
+    const pool = getPool()
+    const [rows] = await pool.execute<RowDataPacket[]>(
       'SELECT * FROM student_exam WHERE student_id = ? AND subject = ?',
       [studentId, subject]
     )
-    return toObjects<StudentExam>(result)[0] ?? null
+    return (rows[0] as StudentExam) ?? null
   },
 
-  /**
-   * 根据ID查找考试
-   */
-  findById(id: number): StudentExam | null {
-    const db = getDb()
-    const result = db.exec('SELECT * FROM student_exam WHERE id = ?', [id])
-    return toObjects<StudentExam>(result)[0] ?? null
+  async findById(id: number): Promise<StudentExam | null> {
+    const pool = getPool()
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      'SELECT * FROM student_exam WHERE id = ?', [id]
+    )
+    return (rows[0] as StudentExam) ?? null
   },
 
-  /**
-   * 查找学生所有考试
-   */
-  findByStudentId(studentId: number): StudentExam[] {
-    const db = getDb()
-    const result = db.exec(
+  async findByStudentId(studentId: number): Promise<StudentExam[]> {
+    const pool = getPool()
+    const [rows] = await pool.execute<RowDataPacket[]>(
       'SELECT * FROM student_exam WHERE student_id = ? ORDER BY submitted_at DESC',
       [studentId]
     )
-    return toObjects<StudentExam>(result)
+    return rows as StudentExam[]
   },
 
-  /**
-   * 保存草稿答案（不改变 status）
-   */
-  saveDraft(id: number, answersJson: string): boolean {
-    const db = getDb()
-    db.run(
+  async saveDraft(id: number, answersJson: string): Promise<boolean> {
+    const pool = getPool()
+    await pool.execute(
       `UPDATE student_exam SET answers_json = ? WHERE id = ? AND status = 'in_progress'`,
       [answersJson, id]
     )
-    saveDatabase()
     return true
   },
 
-  /**
-   * 提交考试（判分+提交）
-   */
-  submit(id: number, answersJson: string, score: number): boolean {
-    const db = getDb()
-    const now = new Date().toISOString()
-    db.run(
-      `UPDATE student_exam SET answers_json = ?, score = ?, status = 'submitted', submitted_at = ? WHERE id = ?`,
-      [answersJson, score, now, id]
+  async submit(id: number, answersJson: string, score: number): Promise<boolean> {
+    const pool = getPool()
+    await pool.execute(
+      `UPDATE student_exam SET answers_json = ?, score = ?, status = 'submitted', submitted_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      [answersJson, score, id]
     )
-    saveDatabase()
     return true
   },
 
-  /**
-   * 管理端查考试结果
-   */
-  findResults(params: {
-    subject?: string
-    studentId?: number
-    page?: number
-    pageSize?: number
-  }): { list: StudentExam[]; total: number } {
-    const db = getDb()
+  async findResults(params: {
+    subject?: string; studentId?: number; page?: number; pageSize?: number
+  }): Promise<{ list: StudentExam[]; total: number }> {
+    const pool = getPool()
     const page = params.page ?? 1
     const pageSize = params.pageSize ?? 50
     const offset = (page - 1) * pageSize
@@ -125,13 +87,13 @@ export const studentExamModel = {
     if (params.subject) { where += ' AND subject = ?'; values.push(params.subject) }
     if (params.studentId !== undefined) { where += ' AND student_id = ?'; values.push(params.studentId) }
 
-    const countResult = db.exec(`SELECT COUNT(*) as total FROM student_exam ${where}`, values)
-    const total = (countResult[0]?.values[0]?.[0] as number) ?? 0
+    const [countRows] = await pool.execute<RowDataPacket[]>(`SELECT COUNT(*) as total FROM student_exam ${where}`, values)
+    const total = (countRows[0] as { total: number }).total
 
-    const listResult = db.exec(
-      `SELECT * FROM student_exam ${where} ORDER BY submitted_at DESC LIMIT ? OFFSET ?`,
-      [...values, pageSize, offset]
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT * FROM student_exam ${where} ORDER BY submitted_at DESC LIMIT ${pageSize} OFFSET ${offset}`,
+      values
     )
-    return { list: toObjects<StudentExam>(listResult), total }
+    return { list: rows as StudentExam[], total }
   },
 }

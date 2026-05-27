@@ -78,13 +78,13 @@ router.post('/login', async (req, res) => {
  * GET /api/admin/auth/me
  * 获取当前用户信息
  */
-router.get('/me', verifyJWT, (req, res) => {
+router.get('/me', verifyJWT, async (req, res) => {
   const admin = req.admin
   if (!admin) {
     res.status(401).json(errorResponse(1001, '未登录'))
     return
   }
-  const user = authService.getById(admin.id)
+  const user = await authService.getById(admin.id)
   if (!user) {
     res.status(401).json(errorResponse(1001, '用户不存在'))
     return
@@ -148,7 +148,7 @@ router.put('/change-password', verifyJWT, async (req, res) => {
  * GET /api/admin/auth/admins
  * 获取管理员列表（仅 admin 角色可查看）
  */
-router.get('/admins', verifyJWT, (req, res) => {
+router.get('/admins', verifyJWT, async (req, res) => {
   try {
     const admin = req.admin
     if (!admin || admin.role !== 'admin') {
@@ -156,7 +156,7 @@ router.get('/admins', verifyJWT, (req, res) => {
       return
     }
 
-    const list = authService.findAllAdmins()
+    const list = await authService.findAllAdmins()
     res.json(apiResponse(list))
   } catch (e: unknown) {
     const err = e as Error

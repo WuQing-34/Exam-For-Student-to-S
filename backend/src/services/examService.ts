@@ -41,36 +41,24 @@ const SUBJECT_DISPLAY_MAP: Record<string, string> = {
 }
 
 export const examService = {
-  /**
-   * 标准化答案（trim + toLowerCase）
-   */
   normalizeAnswer(answer: string): string {
     return answer.trim().toLowerCase()
   },
 
-  /**
-   * 单题判分
-   */
   gradeQuestion(answer: string, question: Question): number {
     const normalized = this.normalizeAnswer(answer)
     const correct = this.normalizeAnswer(question.correct_answer)
-
     if (question.type === 'essay') {
-      // 简答题同样对比答案（与选择、填空一致）
       return normalized === correct ? question.score : 0
     }
-
     return normalized === correct ? question.score : 0
   },
 
-  /**
-   * 批量判分
-   */
-  gradeAnswers(
+  async gradeAnswers(
     answers: Array<{ questionId: number; answer: string }>,
     paperId: number
-  ): GradingResult {
-    const questions = paperModel.findQuestionsByPaperId(paperId)
+  ): Promise<GradingResult> {
+    const questions = await paperModel.findQuestionsByPaperId(paperId)
     const questionMap = new Map(questions.map(q => [q.id, q]))
 
     let score = 0
@@ -96,17 +84,13 @@ export const examService = {
     return { score, totalScore, details }
   },
 
-  /**
-   * v1.1: 按科目分组判分
-   */
-  gradeAnswersBySubject(
+  async gradeAnswersBySubject(
     answers: Array<{ questionId: number; answer: string }>,
     paperId: number
-  ): SubjectGradingResult {
-    const questions = paperModel.findQuestionsByPaperId(paperId)
+  ): Promise<SubjectGradingResult> {
+    const questions = await paperModel.findQuestionsByPaperId(paperId)
     const answerMap = new Map(answers.map(a => [a.questionId, a]))
 
-    // 按科目分组
     const subjectQuestions = new Map<string, Question[]>()
     for (const q of questions) {
       const subject = (q as any).subject || 'default'
@@ -120,7 +104,6 @@ export const examService = {
     let totalFullScore = 0
     const subjectScores: SubjectGradingResult['subject_scores'] = []
 
-    // 每科分别判分
     for (const [subject, qs] of subjectQuestions) {
       let subjectScore = 0
       let subjectFullScore = 0
@@ -160,7 +143,6 @@ export const examService = {
       })
     }
 
-    // 计算S班资格：所有科目得分率均 >= 60%
     const sClassQualified = subjectScores.every(ss => ss.score_rate >= 60)
     const overallScoreRate = totalFullScore > 0 ? (totalScore / totalFullScore) * 100 : 0
 
@@ -173,16 +155,13 @@ export const examService = {
     }
   },
 
-  /**
-   * 开始考试
-   */
-  startExam(assignmentId: number): number {
-    const assignment = assignmentModel.findById(assignmentId)
+  async startExam(assignmentId: number): Promise<number> {
+    const assignment = await assignmentModel.findById(assignmentId)
     if (!assignment) {
       throw new Error('分配记录不存在')
     }
 
-    const existing = examModel.findByAssignmentId(assignmentId)
+    const existing = await examModel.findByAssignmentId(assignmentId)
     if (existing) {
       if (existing.status === 'submitted') {
         throw new Error('该试卷已提交，无法重新开始')
@@ -190,24 +169,21 @@ export const examService = {
       return existing.id
     }
 
-    assignmentModel.updateStatus(assignmentId, 'in_progress')
-    return examModel.create({ assignment_id: assignmentId })
+    await assignmentModel.updateStatus(assignmentId, 'in_progress')
+    return await examModel.create({ assignment_id: assignmentId })
   },
 
-  /**
-   * 提交答案（v1.1: 支持分科判分）
-   */
-  submitAnswers(
+  async submitAnswers(
     examRecordId: number,
     answers: Array<{ questionId: number; answer: string }>,
     action: 'save' | 'submit'
-  ): { status: string; score?: number; totalScore?: number; sClassQualified?: boolean; subjectScores?: SubjectGradingResult['subject_scores'] } {
-    const record = examModel.findById(examRecordId)
+  ): Promise<{ status: string; score?: number; totalScore?: number; sClassQualified?: boolean; subjectScores?: SubjectGradingResult['subject_scores'] }> {
+    const record = await examModel.findById(examRecordId)
     if (!record) {
       throw new Error('考试记录不存在')
     }
 
-    const assignment = assignmentModel.findById(record.assignment_id)
+    const assignment = await assignmentModel.findById(record.assignment_id)
     if (!assignment) {
       throw new Error('分配记录不存在')
     }
@@ -215,16 +191,13 @@ export const examService = {
     const answersJson = JSON.stringify(answers)
 
     if (action === 'save') {
-      // 静默保存答案到数据库，便于恢复和自动保存
-      examModel.saveAnswers(examRecordId, answersJson)
+      await examModel.saveAnswers(examRecordId, answersJson)
       return { status: 'in_progress' }
     }
 
-    // v1.1: 使用分科判分
-    const result = this.gradeAnswersBySubject(answers, assignment.paper_id)
+    const result = await this.gradeAnswersBySubject(answers, assignment.paper_id)
 
-    // 更新考试记录
-    examModel.submit(examRecordId, {
+    await examModel.submit(examRecordId, {
       answers: answersJson,
       score: result.total_score,
       subject_scores: JSON.stringify(result.subject_scores),
@@ -232,8 +205,7 @@ export const examService = {
       total_full_score: result.total_full_score,
     })
 
-    // 更新分配状态
-    assignmentModel.updateStatus(assignment.id, 'completed')
+    await assignmentModel.updateStatus(assignment.id, 'completed')
 
     return {
       status: 'submitted',
@@ -244,31 +216,23 @@ export const examService = {
     }
   },
 
-  /**
-   * 获取成绩（v1.1: 支持分科成绩）
-   */
-  getResult(examRecordId: number): {
-    total_score: number
-    total_full_score: number
-    score_rate: number
-    s_class_qualified: boolean
-    subject_scores: SubjectGradingResult['subject_scores']
-    status: string
-    submittedAt: string | null
-  } {
-    const record = examModel.findById(examRecordId)
+  async getResult(examRecordId: number): Promise<{
+    total_score: number; total_full_score: number; score_rate: number
+    s_class_qualified: boolean; subject_scores: SubjectGradingResult['subject_scores']
+    status: string; submittedAt: string | null
+  }> {
+    const record = await examModel.findById(examRecordId)
     if (!record) {
       throw new Error('考试记录不存在')
     }
 
-    const assignment = assignmentModel.findById(record.assignment_id)
+    const assignment = await assignmentModel.findById(record.assignment_id)
     if (!assignment) {
       throw new Error('分配记录不存在')
     }
 
-    const paper = paperModel.findById(assignment.paper_id)
+    const paper = await paperModel.findById(assignment.paper_id)
 
-    // v1.1: 尝试解析分科成绩
     let subjectScores: SubjectGradingResult['subject_scores'] = []
     let totalFullScore = paper?.total_full_score || paper?.total_score || 0
     let sClassQualified = false
@@ -282,9 +246,7 @@ export const examService = {
       }
     }
 
-    // 兼容旧记录（没有分科成绩时返回空数组）
     if (subjectScores.length === 0 && paper) {
-      // 单科目试卷，生成默认结构
       const totalScore = record.score ?? 0
       subjectScores = [{
         subject: (paper as any).subject || 'chinese',

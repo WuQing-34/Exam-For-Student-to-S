@@ -50,38 +50,34 @@ const SUBJECT_MAP: Record<string, string> = {
 }
 
 export const exportService = {
-  /**
-   * 生成 Word 考试报告（v1.1: 支持分科成绩）
-   */
   async generateExamReport(examRecordId: number): Promise<Buffer> {
-    const record = examModel.findById(examRecordId)
+    const record = await examModel.findById(examRecordId)
     if (!record) {
       throw new Error('考试记录不存在')
     }
 
-    const assignment = assignmentModel.findById(record.assignment_id)
+    const assignment = await assignmentModel.findById(record.assignment_id)
     if (!assignment) {
       throw new Error('分配记录不存在')
     }
 
-    const student = userModel.findById(assignment.student_id)
+    const student = await userModel.findById(assignment.student_id)
     if (!student) {
       throw new Error('考生不存在')
     }
 
-    const paper = paperModel.findById(assignment.paper_id)
+    const paper = await paperModel.findById(assignment.paper_id)
     if (!paper) {
       throw new Error('试卷不存在')
     }
 
-    const questions = paperModel.findQuestionsByPaperId(paper.id)
+    const questions = await paperModel.findQuestionsByPaperId(paper.id)
     const studentAnswers: Array<{ questionId: number; answer: string }> = record.answers
       ? JSON.parse(record.answers)
       : []
 
     const gradeName = GRADE_MAP[paper.grade] || paper.grade
 
-    // 计算每题得分
     const answerMap = new Map(studentAnswers.map(a => [a.questionId, a.answer]))
 
     const totalScore = record.total_full_score || paper.total_score
@@ -110,7 +106,6 @@ export const exportService = {
 
     const children: (Paragraph | Table)[] = []
 
-    // 标题
     children.push(
       new Paragraph({
         text: '考试报告',
@@ -119,7 +114,6 @@ export const exportService = {
       })
     )
 
-    // 基本信息表
     const infoRows: [string, string][] = [
       ['考生姓名', student.name],
       ['考生年级', gradeName],
@@ -129,7 +123,6 @@ export const exportService = {
       ['得分率', `${scoreRate}%`],
     ]
 
-    // v1.1: 添加S班资格
     if (record.s_class_qualified !== undefined) {
       infoRows.push(['S班资格', sClassQualified ? '合格' : '不合格'])
     }
@@ -157,7 +150,6 @@ export const exportService = {
     children.push(infoTable)
     children.push(new Paragraph({ text: '' }))
 
-    // v1.1: 分科成绩
     if (subjectScores.length > 0) {
       children.push(
         new Paragraph({
@@ -194,7 +186,6 @@ export const exportService = {
       children.push(new Paragraph({ text: '' }))
     }
 
-    // 题目详情
     children.push(
       new Paragraph({
         text: '题目详情',
@@ -205,7 +196,6 @@ export const exportService = {
     for (const q of questions) {
       const studentAnswer = answerMap.get(q.id) || '(未作答)'
       const correctAnswer = q.correct_answer
-      const awardedScore = this.calcScore(q, studentAnswer, record.score ?? 0)
 
       const TYPE_MAP: Record<string, string> = {
         choice: '选择题',
@@ -257,7 +247,7 @@ export const exportService = {
         new Paragraph({
           children: [
             new TextRun({ text: `得分：`, bold: true }),
-            new TextRun({ text: `${awardedScore} / ${q.score}` }),
+            new TextRun({ text: `${this.calcScore(q, studentAnswer, record.score ?? 0)} / ${q.score}` }),
           ],
         })
       )
@@ -266,20 +256,12 @@ export const exportService = {
     }
 
     const doc = new Document({
-      sections: [
-        {
-          properties: {},
-          children,
-        },
-      ],
+      sections: [{ properties: {}, children }],
     })
 
     return await Packer.toBuffer(doc)
   },
 
-  /**
-   * 计算单题得分
-   */
   calcScore(question: Question, studentAnswer: string, _totalAwarded: number): number {
     if (question.type === 'essay') {
       return question.score

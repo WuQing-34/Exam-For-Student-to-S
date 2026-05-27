@@ -5,16 +5,20 @@ import fs from 'fs'
 import { config } from './config'
 import { router } from './routes'
 import { errorHandler } from './middlewares/errorHandler'
-import { initDatabase } from './models/db'
+import { initDatabase, closePool } from './models/db'
+import { initRedis } from './middlewares/auth'
 
-// 确保上传和数据目录存在
+// 确保上传目录存在
 if (!fs.existsSync(config.uploadDir)) {
   fs.mkdirSync(config.uploadDir, { recursive: true })
 }
 
 async function startServer() {
-  // 初始化数据库
+  // 初始化数据库（MySQL 连接池 + 建表）
   await initDatabase()
+
+  // 初始化 Redis
+  initRedis()
 
   const app = express()
 
@@ -37,11 +41,22 @@ async function startServer() {
   app.use(errorHandler)
 
   // 启动服务器
-  app.listen(config.port, () => {
-    console.log(`🚀 服务器运行在 http://localhost:${config.port}`)
+  const server = app.listen(config.port, () => {
+    const workerId = process.env.pm_id ?? 'standalone'
+    console.log(`🚀 服务器运行在 http://localhost:${config.port} [Worker #${workerId}]`)
     console.log(`📁 上传目录: ${config.uploadDir}`)
-    console.log(`🗄️  数据目录: ${config.dataDir}`)
   })
+
+  // 优雅退出
+  async function gracefulShutdown(signal: string) {
+    console.log(`\n🛑 收到 ${signal} 信号，正在优雅退出...`)
+    server.close()
+    await closePool()
+    process.exit(0)
+  }
+
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'))
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'))
 }
 
 startServer().catch(err => {

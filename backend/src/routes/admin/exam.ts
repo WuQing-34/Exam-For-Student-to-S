@@ -14,19 +14,19 @@ const SUBJECT_NAMES: Record<string, string> = {
  * GET /api/admin/exams
  * 考试记录列表（v2.0: student_exam 表）
  */
-router.get('/', verifyJWT, (req, res) => {
+router.get('/', verifyJWT, async (req, res) => {
   try {
     const { subject, studentId, page, pageSize } = req.query
 
-    const result = studentExamModel.findResults({
+    const result = await studentExamModel.findResults({
       subject: subject as string,
       studentId: studentId ? parseInt(studentId as string) : undefined,
       page: parseInt(page as string) || 1,
       pageSize: parseInt(pageSize as string) || 20,
     })
 
-    const list = result.list.map(record => {
-      const student = userModel.findById(record.student_id)
+    const list = await Promise.all(result.list.map(async record => {
+      const student = await userModel.findById(record.student_id)
       const score = record.score ?? 0
       const fullScore = record.full_score
       return {
@@ -47,7 +47,7 @@ router.get('/', verifyJWT, (req, res) => {
         startedAt: record.started_at,
         submittedAt: record.submitted_at,
       }
-    })
+    }))
 
     res.json(apiResponse({
       list,
@@ -65,16 +65,16 @@ router.get('/', verifyJWT, (req, res) => {
  * GET /api/admin/exams/:id
  * 考试详情
  */
-router.get('/:id', verifyJWT, (req, res) => {
+router.get('/:id', verifyJWT, async (req, res) => {
   try {
     const id = parseInt(req.params.id)
-    const record = studentExamModel.findById(id)
+    const record = await studentExamModel.findById(id)
     if (!record) {
       res.status(404).json(errorResponse(1003, '考试记录不存在'))
       return
     }
 
-    const student = userModel.findById(record.student_id)
+    const student = await userModel.findById(record.student_id)
     let questions: unknown[] = []
     if (record.questions_json) {
       try { questions = JSON.parse(record.questions_json) } catch { questions = [] }

@@ -1,7 +1,8 @@
 import bcrypt from 'bcrypt'
 import jwt from 'jsonwebtoken'
 import { config } from '../config'
-import { getDb, saveDatabase } from '../models/db'
+import { getPool } from '../models/db'
+import { ResultSetHeader, RowDataPacket } from 'mysql2'
 
 export interface AdminInfo {
   id: number
@@ -14,60 +15,31 @@ export interface AdminInfo {
   created_at: string
 }
 
-function toObjects<T>(result: { columns: string[]; values: unknown[][] }[]): T[] {
-  if (!result || result.length === 0) return []
-  const { columns, values } = result[0]
-  return values.map(row => {
-    const obj: Record<string, unknown> = {}
-    columns.forEach((col, i) => { obj[col] = row[i] })
-    return obj as T
-  })
-}
-
-function toObject<T>(result: { columns: string[]; values: unknown[][] }[]): T | null {
-  const list = toObjects<T>(result)
-  return list[0] ?? null
-}
-
 export const authService = {
-  /**
-   * 注册管理端用户
-   */
   async register(data: {
-    email: string
-    password: string
-    name: string
-    role: 'admin' | 'short_term_tutor'
+    email: string; password: string; name: string; role: 'admin' | 'short_term_tutor'
   }): Promise<AdminInfo> {
-    const db = getDb()
+    const pool = getPool()
 
-    // 检查邮箱是否已存在
-    const exist = db.exec('SELECT id FROM admin WHERE email = ?', [data.email])
-    if (exist[0]?.values?.length) {
+    const [exist] = await pool.execute<RowDataPacket[]>('SELECT id FROM admin WHERE email = ?', [data.email])
+    if (exist.length) {
       throw new Error('该邮箱已被注册')
     }
 
     const passwordHash = await bcrypt.hash(data.password, 10)
-    db.run(
+    const [result] = await pool.execute<ResultSetHeader>(
       'INSERT INTO admin (email, password_hash, name, role) VALUES (?, ?, ?, ?)',
       [data.email, passwordHash, data.name, data.role]
     )
-    const lastId = db.exec('SELECT last_insert_rowid() as id')[0].values[0][0] as number
-    saveDatabase()
 
-    const user = toObject<AdminInfo>(db.exec('SELECT * FROM admin WHERE id = ?', [lastId]))
-    return user!
+    const [rows] = await pool.execute<RowDataPacket[]>('SELECT * FROM admin WHERE id = ?', [result.insertId])
+    return rows[0] as AdminInfo
   },
 
-  /**
-   * 管理端登录
-   */
-  async login(email: string, password: string): Promise<{
-    token: string
-    user: Omit<AdminInfo, 'password_hash'>
-  }> {
-    const db = getDb()
-    const user = toObject<AdminInfo>(db.exec('SELECT * FROM admin WHERE email = ?', [email]))
+  async login(email: string, password: string): Promise<{ token: string; user: Omit<AdminInfo, 'password_hash'> }> {
+    const pool = getPool()
+    const [rows] = await pool.execute<RowDataPacket[]>('SELECT * FROM admin WHERE email = ?', [email])
+    const user = rows[0] as AdminInfo | undefined
     if (!user) {
       throw new Error('邮箱或密码错误')
     }
@@ -87,46 +59,35 @@ export const authService = {
     return { token, user: userInfo }
   },
 
-  /**
-   * 根据 ID 获取管理端用户
-   */
-  getById(id: number): Omit<AdminInfo, 'password_hash'> | null {
-    const db = getDb()
-    const user = toObject<AdminInfo>(db.exec('SELECT * FROM admin WHERE id = ?', [id]))
+  async getById(id: number): Promise<Omit<AdminInfo, 'password_hash'> | null> {
+    const pool = getPool()
+    const [rows] = await pool.execute<RowDataPacket[]>('SELECT * FROM admin WHERE id = ?', [id])
+    const user = rows[0] as AdminInfo | undefined
     if (!user) return null
     const { password_hash: _, ...userInfo } = user
     return userInfo
   },
 
-  /**
-   * 管理员添加新管理员
-   */
   async addAdmin(email: string, name: string): Promise<Omit<AdminInfo, 'password_hash'>> {
-    const db = getDb()
-
-    const exist = db.exec('SELECT id FROM admin WHERE email = ?', [email])
-    if (exist[0]?.values?.length) {
+    const pool = getPool()
+    const [exist] = await pool.execute<RowDataPacket[]>('SELECT id FROM admin WHERE email = ?', [email])
+    if (exist.length) {
       throw new Error('该邮箱前缀已存在')
     }
 
     const defaultPassword = 'aa123456'
     const passwordHash = await bcrypt.hash(defaultPassword, 10)
-    db.run(
+    const [result] = await pool.execute<ResultSetHeader>(
       'INSERT INTO admin (email, password_hash, name, role) VALUES (?, ?, ?, ?)',
       [email, passwordHash, name, 'admin']
     )
-    const lastId = db.exec('SELECT last_insert_rowid() as id')[0].values[0][0] as number
-    saveDatabase()
-
-    return this.getById(lastId)!
+    return (await this.getById(result.insertId))!
   },
 
-  /**
-   * 修改密码
-   */
   async changePassword(adminId: number, oldPassword: string, newPassword: string): Promise<void> {
-    const db = getDb()
-    const user = toObject<AdminInfo>(db.exec('SELECT * FROM admin WHERE id = ?', [adminId]))
+    const pool = getPool()
+    const [rows] = await pool.execute<RowDataPacket[]>('SELECT * FROM admin WHERE id = ?', [adminId])
+    const user = rows[0] as AdminInfo | undefined
     if (!user) {
       throw new Error('用户不存在')
     }
@@ -137,32 +98,22 @@ export const authService = {
     }
 
     const passwordHash = await bcrypt.hash(newPassword, 10)
-    db.run('UPDATE admin SET password_hash = ? WHERE id = ?', [passwordHash, adminId])
-    saveDatabase()
+    await pool.execute('UPDATE admin SET password_hash = ? WHERE id = ?', [passwordHash, adminId])
   },
 
-  /**
-   * 获取所有管理员列表
-   */
-  findAllAdmins(): Omit<AdminInfo, 'password_hash'>[] {
-    const db = getDb()
-    const result = db.exec('SELECT * FROM admin ORDER BY created_at DESC')
-    return toObjects<AdminInfo>(result).map(u => {
+  async findAllAdmins(): Promise<Omit<AdminInfo, 'password_hash'>[]> {
+    const pool = getPool()
+    const [rows] = await pool.execute<RowDataPacket[]>('SELECT * FROM admin ORDER BY created_at DESC')
+    return (rows as AdminInfo[]).map(u => {
       const { password_hash: _, ...info } = u
       return info
     })
   },
 
-  /**
-   * 批量导入短期班辅导名单 (v2.1)
-   */
   async batchImportTutors(records: Array<{
-    center: string
-    team: string
-    name: string
-    email: string
+    center: string; team: string; name: string; email: string
   }>): Promise<{ success: number; failed: number; errors: string[] }> {
-    const db = getDb()
+    const pool = getPool()
     const defaultPassword = 'aa123456'
     const passwordHash = await bcrypt.hash(defaultPassword, 10)
 
@@ -172,15 +123,14 @@ export const authService = {
 
     for (const r of records) {
       try {
-        // 检查邮箱是否已存在
-        const exist = db.exec('SELECT id FROM admin WHERE email = ?', [r.email])
-        if (exist[0]?.values?.length) {
+        const [exist] = await pool.execute<RowDataPacket[]>('SELECT id FROM admin WHERE email = ?', [r.email])
+        if (exist.length) {
           failed++
           errors.push(`${r.name}（${r.email}）：邮箱前缀已存在`)
           continue
         }
 
-        db.run(
+        await pool.execute(
           'INSERT INTO admin (email, password_hash, name, role, center, team) VALUES (?, ?, ?, ?, ?, ?)',
           [r.email, passwordHash, r.name, 'short_term_tutor', r.center || null, r.team || null]
         )
@@ -192,7 +142,6 @@ export const authService = {
       }
     }
 
-    saveDatabase()
     return { success, failed, errors }
   },
 }

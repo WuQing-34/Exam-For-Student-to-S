@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { verifyJWT } from '../../middlewares/auth'
 import { roleGuard } from '../../middlewares/roleGuard'
 import { upload } from '../../middlewares/upload'
+import { getPool } from '../../models/db'
 import { paperService } from '../../services/paperService'
 import { assignmentService } from '../../services/assignmentService'
 import { paperModel } from '../../models/paperModel'
@@ -13,7 +14,7 @@ const router = Router()
  * PUT /api/admin/questions/:id/content
  * 更新题目内容（含图片标记）
  */
-router.put('/questions/:id/content', verifyJWT, roleGuard('admin'), (req, res) => {
+router.put('/questions/:id/content', verifyJWT, roleGuard('admin'), async (req, res) => {
   try {
     const id = parseInt(req.params.id)
     const { content } = req.body
@@ -23,9 +24,8 @@ router.put('/questions/:id/content', verifyJWT, roleGuard('admin'), (req, res) =
       return
     }
 
-    const db = require('../../models/db').getDb()
-    db.run('UPDATE question SET content = ? WHERE id = ?', [content, id])
-    require('../../models/db').saveDatabase()
+    const pool = getPool()
+    await pool.execute('UPDATE question SET content = ? WHERE id = ?', [content, id])
 
     res.json(apiResponse(null, '更新成功'))
   } catch (e: unknown) {
@@ -39,24 +39,24 @@ router.put('/questions/:id/content', verifyJWT, roleGuard('admin'), (req, res) =
  * 试卷列表（分页+筛选）
  * v1.1: 移除 subject 查询参数（多科目）
  */
-router.get('/', verifyJWT, (req, res) => {
+router.get('/', verifyJWT, async (req, res) => {
   try {
     const { grade, page, pageSize } = req.query
-    const result = paperModel.findAll({
+    const result = await paperModel.findAll({
       grade: grade as string,
       page: parseInt(page as string) || 1,
       pageSize: parseInt(pageSize as string) || 20,
     })
 
     // 补充每份试卷的题目数量
-    const list = result.list.map(paper => {
-      const questions = paperModel.findQuestionsByPaperId(paper.id)
+    const list = await Promise.all(result.list.map(async paper => {
+      const questions = await paperModel.findQuestionsByPaperId(paper.id)
       return {
         ...paper,
         questionCount: questions.length,
         subjects_included: paper.subjects_included ? JSON.parse(paper.subjects_included) : undefined,
       }
-    })
+    }))
 
     res.json(apiResponse({
       list,
@@ -103,7 +103,7 @@ router.post(
       })
 
       // 自动分配给同年级学生
-      const assignResult = assignmentService.autoAssignNewPaper(result.paperId)
+      const assignResult = await assignmentService.autoAssignNewPaper(result.paperId)
 
       res.json(apiResponse({
         id: result.paperId,
@@ -130,17 +130,17 @@ router.post(
  * 试卷详情（含答案）
  * v1.1: 返回 sections
  */
-router.get('/:id', verifyJWT, (req, res) => {
+router.get('/:id', verifyJWT, async (req, res) => {
   try {
     const id = parseInt(req.params.id)
-    const paper = paperModel.findById(id)
+    const paper = await paperModel.findById(id)
     if (!paper) {
       res.status(404).json(errorResponse(3001, '试卷不存在'))
       return
     }
 
-    const questions = paperModel.findQuestionsByPaperId(id)
-    const sections = paperModel.findSectionsByPaperId(id)
+    const questions = await paperModel.findQuestionsByPaperId(id)
+    const sections = await paperModel.findSectionsByPaperId(id)
 
     res.json(apiResponse({
       paper: {
@@ -160,17 +160,17 @@ router.get('/:id', verifyJWT, (req, res) => {
  * GET /api/admin/papers/:id/preview
  * 预览试卷（不含答案）
  */
-router.get('/:id/preview', verifyJWT, (req, res) => {
+router.get('/:id/preview', verifyJWT, async (req, res) => {
   try {
     const id = parseInt(req.params.id)
-    const paper = paperModel.findById(id)
+    const paper = await paperModel.findById(id)
     if (!paper) {
       res.status(404).json(errorResponse(3001, '试卷不存在'))
       return
     }
 
-    const questions = paperModel.findQuestionsByPaperId(id)
-    const sections = paperModel.findSectionsByPaperId(id)
+    const questions = await paperModel.findQuestionsByPaperId(id)
+    const sections = await paperModel.findSectionsByPaperId(id)
 
     // 移除 correct_answer 字段
     const questionsWithoutAnswer = questions.map(({ correct_answer: _, ...q }) => q)
@@ -193,14 +193,14 @@ router.get('/:id/preview', verifyJWT, (req, res) => {
  * DELETE /api/admin/papers/batch
  * 批量删除试卷（仅 admin）
  */
-router.delete('/batch', verifyJWT, roleGuard('admin'), (req, res) => {
+router.delete('/batch', verifyJWT, roleGuard('admin'), async (req, res) => {
   try {
     const { ids } = req.body
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
       res.status(400).json(errorResponse(1000, '请提供要删除的试卷ID列表'))
       return
     }
-    const count = paperModel.batchDelete(ids)
+    const count = await paperModel.batchDelete(ids)
     res.json(apiResponse({ count }, `成功删除 ${count} 份试卷`))
   } catch (e: unknown) {
     const err = e as Error
@@ -212,10 +212,10 @@ router.delete('/batch', verifyJWT, roleGuard('admin'), (req, res) => {
  * DELETE /api/admin/papers/:id
  * 删除试卷（仅 admin）
  */
-router.delete('/:id', verifyJWT, roleGuard('admin'), (req, res) => {
+router.delete('/:id', verifyJWT, roleGuard('admin'), async (req, res) => {
   try {
     const id = parseInt(req.params.id)
-    const deleted = paperModel.delete(id)
+    const deleted = await paperModel.delete(id)
     if (!deleted) {
       res.status(404).json(errorResponse(3001, '试卷不存在'))
       return

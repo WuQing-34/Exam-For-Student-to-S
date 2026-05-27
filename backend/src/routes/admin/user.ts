@@ -11,7 +11,7 @@ const router = Router()
  * GET /api/admin/students
  * 考生列表（分页+筛选）v2.0: 支持 salesId 筛选
  */
-router.get('/', verifyJWT, (req, res) => {
+router.get('/', verifyJWT, async (req, res) => {
   try {
     const admin = req.admin!
     const { grade, keyword, salesId, page, pageSize } = req.query
@@ -21,7 +21,7 @@ router.get('/', verifyJWT, (req, res) => {
       ? admin.id
       : (salesId ? parseInt(salesId as string) : undefined)
 
-    const result = userModel.findAll({
+    const result = await userModel.findAll({
       grade: grade as string,
       keyword: keyword as string,
       salesId: effectiveSalesId,
@@ -51,7 +51,7 @@ router.get('/', verifyJWT, (req, res) => {
  * GET /api/admin/students/my
  * 我的学生（short_term_tutor 专用）
  */
-router.get('/my', verifyJWT, (req, res) => {
+router.get('/my', verifyJWT, async (req, res) => {
   try {
     const admin = req.admin!
     if (admin.role !== 'admin' && admin.role !== 'short_term_tutor') {
@@ -62,7 +62,7 @@ router.get('/my', verifyJWT, (req, res) => {
     const page = parseInt(req.query.page as string) || 1
     const pageSize = parseInt(req.query.pageSize as string) || 50
 
-    const result = userModel.findBySalesId(admin.id, { page, pageSize })
+    const result = await userModel.findBySalesId(admin.id, { page, pageSize })
 
     const list = result.list.map(s => ({
       ...s,
@@ -80,7 +80,7 @@ router.get('/my', verifyJWT, (req, res) => {
  * POST /api/admin/students
  * 单独新增考生 (v2.0: 支持 subjects/sales_id)
  */
-router.post('/', verifyJWT, (req, res) => {
+router.post('/', verifyJWT, async (req, res) => {
   try {
     const { name, phone, grade, subjects, salesId } = req.body
     if (!name || !phone || !grade) {
@@ -88,18 +88,18 @@ router.post('/', verifyJWT, (req, res) => {
       return
     }
 
-    const existing = userModel.findByNamePhone(name, phone)
+    const existing = await userModel.findByNamePhone(name, phone)
     if (existing) {
       res.status(400).json(errorResponse(1000, '该考生手机号已存在'))
       return
     }
 
-    const id = userModel.create({
+    const id = await userModel.create({
       name, phone, grade,
       subjects: subjects ? JSON.stringify(subjects) : undefined,
       sales_id: salesId ?? undefined,
     })
-    const student = userModel.findById(id)
+    const student = await userModel.findById(id)
     res.json(apiResponse(student, '创建成功'))
   } catch (e: unknown) {
     const err = e as Error
@@ -111,7 +111,7 @@ router.post('/', verifyJWT, (req, res) => {
  * POST /api/admin/students/import
  * 批量导入考生 (v2.0)
  */
-router.post('/import', verifyJWT, upload.single('file'), (req, res) => {
+router.post('/import', verifyJWT, upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
       res.status(400).json(errorResponse(5002, '请上传文件'))
@@ -141,7 +141,7 @@ router.post('/import', verifyJWT, upload.single('file'), (req, res) => {
         grade: GRADE_MAP[r.grade] || r.grade,
       }))
 
-    const result = userModel.batchImport(records)
+    const result = await userModel.batchImport(records)
 
     res.json(apiResponse({
       success: result.success,
@@ -159,12 +159,12 @@ router.post('/import', verifyJWT, upload.single('file'), (req, res) => {
  * PUT /api/admin/students/:id
  * 编辑考生 (v2.0: 支持 subjects/sales_id)
  */
-router.put('/:id', verifyJWT, (req, res) => {
+router.put('/:id', verifyJWT, async (req, res) => {
   try {
     const id = parseInt(req.params.id)
     const { name, phone, grade, subjects, salesId } = req.body
 
-    const existing = userModel.findById(id)
+    const existing = await userModel.findById(id)
     if (!existing) {
       res.status(404).json(errorResponse(1003, '考生不存在'))
       return
@@ -176,12 +176,12 @@ router.put('/:id', verifyJWT, (req, res) => {
     }
 
     const normalizedGrade = GRADE_MAP[grade] || grade
-    userModel.update(id, {
+    await userModel.update(id, {
       name, phone, grade: normalizedGrade,
       subjects: subjects !== undefined ? (subjects ? JSON.stringify(subjects) : '') : undefined,
       sales_id: salesId !== undefined ? salesId : undefined,
     })
-    const updated = userModel.findById(id)
+    const updated = await userModel.findById(id)
     res.json(apiResponse(updated, '更新成功'))
   } catch (e: unknown) {
     const err = e as Error
@@ -193,15 +193,15 @@ router.put('/:id', verifyJWT, (req, res) => {
  * DELETE /api/admin/students/:id
  * 删除考生
  */
-router.delete('/:id', verifyJWT, (req, res) => {
+router.delete('/:id', verifyJWT, async (req, res) => {
   try {
     const id = parseInt(req.params.id)
-    const existing = userModel.findById(id)
+    const existing = await userModel.findById(id)
     if (!existing) {
       res.status(404).json(errorResponse(1003, '考生不存在'))
       return
     }
-    userModel.delete(id)
+    await userModel.delete(id)
     res.json(apiResponse(null, '删除成功'))
   } catch (e: unknown) {
     const err = e as Error

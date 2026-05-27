@@ -46,10 +46,10 @@ function getField(row: Record<string, unknown>, ...keys: string[]): string {
  * GET /api/admin/question-bank
  * 题库列表（分页+筛选）
  */
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
     const { subject, type, page, pageSize } = req.query
-    const result = questionBankModel.findAll({
+    const result = await questionBankModel.findAll({
       subject: subject as string,
       type: type as string,
       page: parseInt(page as string) || 1,
@@ -71,9 +71,9 @@ router.get('/', (req, res) => {
  * GET /api/admin/question-bank/stats
  * 各科题目统计
  */
-router.get('/stats', (req, res) => {
+router.get('/stats', async (req, res) => {
   try {
-    const stats = questionBankModel.statsBySubject()
+    const stats = await questionBankModel.statsBySubject()
     res.json(apiResponse(stats))
   } catch (e: unknown) {
     const err = e as Error
@@ -85,7 +85,7 @@ router.get('/stats', (req, res) => {
  * POST /api/admin/question-bank
  * 添加单题
  */
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   try {
     const { subject, type, content, options, correct_answer } = req.body
 
@@ -107,7 +107,7 @@ router.post('/', (req, res) => {
     }
 
     const admin = req.admin!
-    const item = questionBankModel.create({
+    const item = await questionBankModel.create({
       subject, type, content,
       options: options ? JSON.stringify(options) : null,
       correct_answer,
@@ -125,7 +125,7 @@ router.post('/', (req, res) => {
  * POST /api/admin/question-bank/batch
  * 批量导入（Excel）
  */
-router.post('/batch', upload.single('file'), (req, res) => {
+router.post('/batch', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
       res.status(400).json(errorResponse(5002, '请上传文件'))
@@ -184,7 +184,7 @@ router.post('/batch', upload.single('file'), (req, res) => {
       return
     }
 
-    const count = questionBankModel.batchCreate(questions)
+    const count = await questionBankModel.batchCreate(questions)
     res.json(apiResponse({ count }, `成功导入 ${count} 道题目`))
   } catch (e: unknown) {
     const err = e as Error
@@ -196,14 +196,14 @@ router.post('/batch', upload.single('file'), (req, res) => {
  * DELETE /api/admin/question-bank/batch
  * 批量删除题目
  */
-router.delete('/batch', (req, res) => {
+router.delete('/batch', async (req, res) => {
   try {
     const { ids } = req.body
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
       res.status(400).json(errorResponse(1000, '请提供要删除的题目ID列表'))
       return
     }
-    const count = questionBankModel.batchDelete(ids)
+    const count = await questionBankModel.batchDelete(ids)
     res.json(apiResponse({ count }, `成功删除 ${count} 道题目`))
   } catch (e: unknown) {
     const err = e as Error
@@ -215,10 +215,10 @@ router.delete('/batch', (req, res) => {
  * DELETE /api/admin/question-bank/:id
  * 删除题目
  */
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id)
-    questionBankModel.delete(id)
+    await questionBankModel.delete(id)
     res.json(apiResponse(null, '删除成功'))
   } catch (e: unknown) {
     const err = e as Error

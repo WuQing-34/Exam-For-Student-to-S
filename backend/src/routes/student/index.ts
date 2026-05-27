@@ -1,10 +1,10 @@
 import { Router } from 'express'
 import { v4 as uuidv4 } from 'uuid'
-import { verifyStudentSession, studentSessionStore } from '../../middlewares/auth'
+import { verifyStudentSession, setStudentSession } from '../../middlewares/auth'
+import { getPool } from '../../models/db'
 import { userModel } from '../../models/userModel'
 import { questionBankModel } from '../../models/questionBankModel'
 import { studentExamModel } from '../../models/studentExamModel'
-import { getDb } from '../../models/db'
 import { apiResponse, errorResponse, calcScoreRate } from '../../utils/helpers'
 
 const router = Router()
@@ -17,7 +17,7 @@ const SUBJECT_NAMES: Record<string, string> = {
  * POST /api/student/register
  * 学生自助注册 (v2.0)
  */
-router.post('/register', (req, res) => {
+router.post('/register', async (req, res) => {
   try {
     const { name, phone, grade, subjects, salesId } = req.body
 
@@ -35,21 +35,24 @@ router.post('/register', (req, res) => {
     }
 
     // 检查是否已注册（按姓名+手机号）
-    const existing = userModel.findByNamePhone(name, phone)
+    const existing = await userModel.findByNamePhone(name, phone)
     if (existing) {
       res.status(400).json(errorResponse(1000, '该手机号已注册，请直接登录'))
       return
     }
 
     // 验证销售是否存在且为 short_term_tutor
-    const db = getDb()
-    const sales = db.exec('SELECT id, role FROM admin WHERE id = ? AND role = ?', [salesId, 'short_term_tutor'])
-    if (!sales[0]?.values?.length) {
+    const pool = getPool()
+    const [sales] = await pool.execute(
+      'SELECT id, role FROM admin WHERE id = ? AND role = ?',
+      [salesId, 'short_term_tutor']
+    ) as [Array<{ id: number; role: string }>, unknown]
+    if (!sales.length) {
       res.status(400).json(errorResponse(1000, '选择的辅导老师不存在'))
       return
     }
 
-    const id = userModel.create({
+    const id = await userModel.create({
       name, phone, grade,
       subjects: JSON.stringify(subjects),
       sales_id: salesId,
@@ -57,7 +60,7 @@ router.post('/register', (req, res) => {
 
     // 自动登录
     const sessionId = uuidv4()
-    studentSessionStore.set(sessionId, {
+    await setStudentSession(sessionId, {
       studentId: id,
       name,
       grade,
@@ -81,7 +84,7 @@ router.post('/register', (req, res) => {
  * POST /api/student/login
  * 学生登录 (v2.0: 按姓名+手机号，返回 subjects)
  */
-router.post('/login', (req, res) => {
+router.post('/login', async (req, res) => {
   try {
     const { name, phone } = req.body
 
@@ -90,7 +93,7 @@ router.post('/login', (req, res) => {
       return
     }
 
-    const student = userModel.findByNamePhone(name, phone)
+    const student = await userModel.findByNamePhone(name, phone)
     if (!student) {
       res.status(401).json(errorResponse(2001, '未找到您的信息，请先注册'))
       return
@@ -103,7 +106,7 @@ router.post('/login', (req, res) => {
     }
 
     const sessionId = uuidv4()
-    studentSessionStore.set(sessionId, {
+    await setStudentSession(sessionId, {
       studentId: student.id,
       name: student.name,
       grade: student.grade,
@@ -133,23 +136,13 @@ router.post('/login', (req, res) => {
  * GET /api/student/sales
  * 获取销售列表（仅 short_term_tutor 角色）
  */
-router.get('/sales', (req, res) => {
+router.get('/sales', async (req, res) => {
   try {
-    const db = getDb()
-    const result = db.exec(
+    const pool = getPool()
+    const [rows] = await pool.execute(
       "SELECT id, name, email FROM admin WHERE role = 'short_term_tutor' ORDER BY id"
-    )
-    if (!result.length) {
-      res.json(apiResponse({ list: [] }))
-      return
-    }
-    const { columns, values } = result[0]
-    const list = values.map(row => {
-      const obj: Record<string, unknown> = {}
-      columns.forEach((c, i) => { obj[c] = row[i] })
-      return obj
-    })
-    res.json(apiResponse({ list }))
+    ) as [Array<{ id: number; name: string; email: string }>, unknown]
+    res.json(apiResponse({ list: rows }))
   } catch (e: unknown) {
     const err = e as Error
     res.status(500).json(errorResponse(1000, err.message))
@@ -160,10 +153,10 @@ router.get('/sales', (req, res) => {
  * GET /api/student/subjects
  * 我的报名科目
  */
-router.get('/subjects', verifyStudentSession, (req, res) => {
+router.get('/subjects', verifyStudentSession, async (req, res) => {
   try {
     const session = req.studentSession!
-    const student = userModel.findById(session.studentId)
+    const student = await userModel.findById(session.studentId)
     if (!student) {
       res.status(404).json(errorResponse(1003, '学生不存在'))
       return
@@ -175,7 +168,7 @@ router.get('/subjects', verifyStudentSession, (req, res) => {
     }
 
     // 获取每科的考试状态
-    const exams = studentExamModel.findByStudentId(session.studentId)
+    const exams = await studentExamModel.findByStudentId(session.studentId)
     const examMap = new Map(exams.map(e => [e.subject, e]))
 
     const subjectList = subjects.map(s => {
@@ -204,7 +197,7 @@ router.get('/subjects', verifyStudentSession, (req, res) => {
  * 开始某科考试 (v2.0)
  * body: { subject }
  */
-router.post('/exams/start', verifyStudentSession, (req, res) => {
+router.post('/exams/start', verifyStudentSession, async (req, res) => {
   try {
     const { subject } = req.body
     const session = req.studentSession!
@@ -215,7 +208,7 @@ router.post('/exams/start', verifyStudentSession, (req, res) => {
     }
 
     // 检查学生是否报名了该科目
-    const student = userModel.findById(session.studentId)
+    const student = await userModel.findById(session.studentId)
     if (!student) {
       res.status(404).json(errorResponse(1003, '学生不存在'))
       return
@@ -230,23 +223,23 @@ router.post('/exams/start', verifyStudentSession, (req, res) => {
     }
 
     // 检查是否已经考过
-    const existing = studentExamModel.findByStudentAndSubject(session.studentId, subject)
+    const existing = await studentExamModel.findByStudentAndSubject(session.studentId, subject)
     if (existing && existing.status === 'submitted') {
       res.status(400).json(errorResponse(4002, '该科目已提交，不能重新考试'))
       return
     }
 
     // 检查题库是否足够
-    const choiceCount = questionBankModel.countBySubject(subject, 'choice')
-    const fillCount = questionBankModel.countBySubject(subject, 'fill')
+    const choiceCount = await questionBankModel.countBySubject(subject, 'choice')
+    const fillCount = await questionBankModel.countBySubject(subject, 'fill')
     if (choiceCount < 5 || fillCount < 5) {
       res.status(400).json(errorResponse(1000, `该科目题库不足（需选择题≥5、填空题≥5，当前选择${choiceCount}、填空${fillCount}）`))
       return
     }
 
     // 随机抽题：5 选择 + 5 填空
-    const choices = questionBankModel.randomPick(subject, 'choice', 5)
-    const fills = questionBankModel.randomPick(subject, 'fill', 5)
+    const choices = await questionBankModel.randomPick(subject, 'choice', 5)
+    const fills = await questionBankModel.randomPick(subject, 'fill', 5)
     const questions = [...choices, ...fills]
 
     // 去掉正确答案后返回
@@ -287,7 +280,7 @@ router.post('/exams/start', verifyStudentSession, (req, res) => {
       ...q,
       options: options,
     }))
-    const exam = studentExamModel.create(
+    const exam = await studentExamModel.create(
       session.studentId,
       subject,
       JSON.stringify(questionsStored),
@@ -310,17 +303,17 @@ router.post('/exams/start', verifyStudentSession, (req, res) => {
  * GET /api/student/exams/results
  * 获取所有科目成绩汇总 (v2.0) — 必须在 /:id 之前定义，避免路由冲突
  */
-router.get('/exams/results', verifyStudentSession, (req, res) => {
+router.get('/exams/results', verifyStudentSession, async (req, res) => {
   try {
     const session = req.studentSession!
-    const student = userModel.findById(session.studentId)
+    const student = await userModel.findById(session.studentId)
 
     let subjects: string[] = []
     if (student?.subjects) {
       try { subjects = JSON.parse(student.subjects) } catch { subjects = [] }
     }
 
-    const exams = studentExamModel.findByStudentId(session.studentId)
+    const exams = await studentExamModel.findByStudentId(session.studentId)
     const examMap = new Map(exams.map(e => [e.subject, e]))
 
     const results = subjects.map(s => {
@@ -350,7 +343,7 @@ router.get('/exams/results', verifyStudentSession, (req, res) => {
  * POST /api/student/exams/:id/save
  * 保存答案草稿（考试中途自动保存）
  */
-router.post('/exams/:id/save', verifyStudentSession, (req, res) => {
+router.post('/exams/:id/save', verifyStudentSession, async (req, res) => {
   try {
     const examId = parseInt(req.params.id)
     if (isNaN(examId)) {
@@ -360,7 +353,7 @@ router.post('/exams/:id/save', verifyStudentSession, (req, res) => {
     const { answers } = req.body
     const session = req.studentSession!
 
-    const exam = studentExamModel.findById(examId)
+    const exam = await studentExamModel.findById(examId)
     if (!exam) {
       res.status(404).json(errorResponse(1003, '考试记录不存在'))
       return
@@ -374,7 +367,7 @@ router.post('/exams/:id/save', verifyStudentSession, (req, res) => {
       return
     }
 
-    studentExamModel.saveDraft(examId, JSON.stringify(answers || []))
+    await studentExamModel.saveDraft(examId, JSON.stringify(answers || []))
     res.json(apiResponse({ saved: true }, '草稿已保存'))
   } catch (e: unknown) {
     const err = e as Error
@@ -386,7 +379,7 @@ router.post('/exams/:id/save', verifyStudentSession, (req, res) => {
  * GET /api/student/exams/:id
  * 获取考试题目 (v2.0)
  */
-router.get('/exams/:id', verifyStudentSession, (req, res) => {
+router.get('/exams/:id', verifyStudentSession, async (req, res) => {
   try {
     const examId = parseInt(req.params.id)
     if (isNaN(examId)) {
@@ -395,7 +388,7 @@ router.get('/exams/:id', verifyStudentSession, (req, res) => {
     }
     const session = req.studentSession!
 
-    const exam = studentExamModel.findById(examId)
+    const exam = await studentExamModel.findById(examId)
     if (!exam) {
       res.status(404).json(errorResponse(1003, '考试记录不存在'))
       return
@@ -442,7 +435,7 @@ router.get('/exams/:id', verifyStudentSession, (req, res) => {
  * POST /api/student/exams/:id/submit
  * 提交考试 (v2.0: 按科判分)
  */
-router.post('/exams/:id/submit', verifyStudentSession, (req, res) => {
+router.post('/exams/:id/submit', verifyStudentSession, async (req, res) => {
   try {
     const examId = parseInt(req.params.id)
     if (isNaN(examId)) {
@@ -452,7 +445,7 @@ router.post('/exams/:id/submit', verifyStudentSession, (req, res) => {
     const { answers } = req.body
     const session = req.studentSession!
 
-    const exam = studentExamModel.findById(examId)
+    const exam = await studentExamModel.findById(examId)
     if (!exam) {
       res.status(404).json(errorResponse(1003, '考试记录不存在'))
       return
@@ -491,7 +484,7 @@ router.post('/exams/:id/submit', verifyStudentSession, (req, res) => {
     }
 
     const fullScore = exam.full_score
-    studentExamModel.submit(examId, JSON.stringify(answerArray), score)
+    await studentExamModel.submit(examId, JSON.stringify(answerArray), score)
 
     res.json(apiResponse({
       examId,
@@ -511,10 +504,10 @@ router.post('/exams/:id/submit', verifyStudentSession, (req, res) => {
  * GET /api/student/exams/:id/result
  * 获取单科成绩 (兼容旧版)
  */
-router.get('/exams/:id/result', verifyStudentSession, (req, res) => {
+router.get('/exams/:id/result', verifyStudentSession, async (req, res) => {
   try {
     const examId = parseInt(req.params.id)
-    const exam = studentExamModel.findById(examId)
+    const exam = await studentExamModel.findById(examId)
     if (!exam) {
       res.status(404).json(errorResponse(1003, '考试记录不存在'))
       return

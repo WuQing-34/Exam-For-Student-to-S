@@ -8,5 +8,6 @@ backend/uploads/*
 .vite/
 .workbuddy/
 tmp/
+.env
 .env.local
 .env.*.local

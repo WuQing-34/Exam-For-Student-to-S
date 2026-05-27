@@ -3,7 +3,6 @@ import mammoth from 'mammoth'
 import path from 'path'
 import fs from 'fs'
 import { paperModel, QuestionOption } from '../models/paperModel'
-import { getDb, saveDatabase } from '../models/db'
 
 export interface ParsedQuestion {
   type: 'choice' | 'fill' | 'essay'
@@ -521,7 +520,7 @@ export const paperService = {
     sections.sort((a, b) => a.subject_order - b.subject_order)
 
     // 创建试卷
-    const paperId = paperModel.create({
+    const paperId = await paperModel.create({
       title: metadata.title,
       grade: metadata.grade,
       subject: 'multi',  // 标记为多科目
@@ -532,10 +531,9 @@ export const paperService = {
     })
 
     // 保存科目分段和题目
-    const db = getDb()
     for (const section of sections) {
       // 创建科目分段
-      const sectionId = paperModel.createSubjectSection({
+      await paperModel.createSubjectSection({
         paper_id: paperId,
         subject: section.subject,
         subject_name: section.subject_name,
@@ -555,10 +553,8 @@ export const paperService = {
         subject: q.subject,
       }))
 
-      paperModel.createQuestionsBatch(paperId, questionsToSave)
+      await paperModel.createQuestionsBatch(paperId, questionsToSave)
     }
-
-    saveDatabase()
 
     return {
       paperId,
@@ -601,7 +597,7 @@ export const paperService = {
 
     const totalScore = questions.reduce((sum, q) => sum + q.score, 0)
 
-    const paperId = paperModel.create({
+    const paperId = await paperModel.create({
       title: metadata.title,
       grade: metadata.grade,
       subject: metadata.subject,
@@ -609,7 +605,7 @@ export const paperService = {
       created_by: metadata.created_by,
     })
 
-    paperModel.createQuestionsBatch(
+    await paperModel.createQuestionsBatch(
       paperId,
       questions.map(q => ({
         type: q.type,
