@@ -112,6 +112,126 @@ export function PaperListPage() {
     }
   }
 
+  // 渲染预览题目列表
+  const renderPreviewQuestions = () => {
+    if (!previewPaper?.questions) return null
+    return previewPaper.questions.map((q: any) => {
+      const isChoice = q.type === 'choice'
+      const isFill = q.type === 'fill_blank' || q.type === 'fill'
+
+      let rawOpts = q.options
+      if (typeof rawOpts === 'string') {
+        try { rawOpts = JSON.parse(rawOpts) } catch { rawOpts = null }
+      }
+      const rawArr: any[] = Array.isArray(rawOpts) ? rawOpts : []
+
+      const choiceOpts = isChoice && rawArr.length > 0
+        ? rawArr.map((item: any) => {
+            if (typeof item === 'object' && item !== null && 'label' in item) {
+              return { label: item.label, text: item.text || '', image: item.image }
+            }
+            if (typeof item === 'string') {
+              const m = item.match(/^([A-D])\s*[.．、]\s*(.+)/)
+              if (m) {
+                const imgM = m[2].match(/!\[\]\(([^)]+)\)/)
+                return { label: m[1], text: imgM ? m[2].replace(imgM[0], '').trim() : m[2].trim(), image: imgM?.[1] }
+              }
+              return { label: '', text: item }
+            }
+            return { label: '', text: String(item) }
+          })
+        : []
+
+      let fillLabels: string[] = []
+      let fillAnswers: string[] = []
+      if (isFill) {
+        if (rawArr.length > 0 && typeof rawArr[0] === 'string') {
+          fillLabels = rawArr
+        }
+        let rawAns = q.correct_answer
+        if (typeof rawAns === 'string') {
+          try { rawAns = JSON.parse(rawAns) } catch { /* keep as string */ }
+        }
+        fillAnswers = Array.isArray(rawAns) ? rawAns : []
+      }
+
+      let shortAnswer = ''
+      if (!isChoice && !isFill) {
+        let rawAns: any = q.correct_answer
+        if (typeof rawAns === 'string') {
+          try { const p = JSON.parse(rawAns); rawAns = Array.isArray(p) ? p.join('；') : rawAns } catch { /* keep as string */ }
+        } else if (Array.isArray(rawAns)) {
+          rawAns = rawAns.join('；')
+        }
+        shortAnswer = String(rawAns || '')
+      }
+
+      return (
+        <Box key={q.id} sx={{ mb: 3 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography variant="body1" fontWeight="bold">
+              第{q.order_num}题 [{q.type === 'choice' ? '选择题' : q.type === 'fill' || q.type === 'fill_blank' ? '填空题' : '简答题'}]
+              {q.subject && ` [${SUBJECT_MAP[q.subject as keyof typeof SUBJECT_MAP] || q.subject}]`}（{q.score}分）
+            </Typography>
+            <IconButton size="small" onClick={() => setEditingQuestion(q)} title="编辑题目">
+              <EditIcon fontSize="small" />
+            </IconButton>
+          </Box>
+          <QuestionContent content={q.content} />
+
+          {isChoice && choiceOpts.length > 0 && (
+            <Box sx={{ mt: 1, pl: 2 }}>
+              {choiceOpts.map((opt: any) => (
+                <Box key={opt.label} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                  <Typography variant="body2">
+                    {opt.label}. {opt.text}
+                  </Typography>
+                  {opt.image && (
+                    <img src={opt.image} alt={opt.label}
+                      style={{ maxWidth: 200, maxHeight: 120, border: '1px solid #e0e0e0', borderRadius: 4 }}
+                    />
+                  )}
+                </Box>
+              ))}
+            </Box>
+          )}
+
+          {isFill && fillLabels.length > 0 && (
+            <Box sx={{ mt: 1, pl: 2, p: 1.5, bgcolor: '#f5f5f5', borderRadius: 1 }}>
+              <Typography variant="body2" fontWeight="bold" gutterBottom>填空标签：</Typography>
+              {fillLabels.map((label, idx) => (
+                <Chip
+                  key={idx}
+                  label={`(${idx + 1}) ${label}`}
+                  size="small"
+                  variant="outlined"
+                  sx={{ mr: 0.5, mb: 0.5 }}
+                />
+              ))}
+              {fillAnswers.length > 0 && (
+                <Box sx={{ mt: 1 }}>
+                  <Typography variant="body2" fontWeight="bold" gutterBottom>参考答案：</Typography>
+                  {fillAnswers.map((ans, idx) => (
+                    <Typography key={idx} variant="body2" sx={{ color: '#1976d2' }}>
+                      ({idx + 1}) {ans}
+                    </Typography>
+                  ))}
+                </Box>
+              )}
+            </Box>
+          )}
+
+          {!isChoice && !isFill && shortAnswer.length > 0 && (
+            <Box sx={{ mt: 1, pl: 2, p: 1.5, bgcolor: '#f5f5f5', borderRadius: 1 }}>
+              <Typography variant="body2" fontWeight="bold" gutterBottom>参考答案：</Typography>
+              <Typography variant="body2" sx={{ color: '#1976d2' }}>{shortAnswer}</Typography>
+            </Box>
+          )}
+        </Box>
+      )
+    })
+  }
+
   const handleDelete = async () => {
     if (!deleteId) return
     try {
@@ -124,9 +244,9 @@ export function PaperListPage() {
     }
   }
 
-  const handleSaveQuestionContent = async (questionId: number, content: string) => {
+  const handleSaveQuestion = async (questionId: number, content: string, options?: any) => {
     try {
-      await paperApi.updateQuestionContent(questionId, content)
+      await paperApi.updateQuestion(questionId, content, options)
       // 刷新预览
       if (previewPaper) {
         handlePreview(previewPaper.paper.id)
@@ -136,6 +256,7 @@ export function PaperListPage() {
       setError(err.message || '保存失败')
     }
   }
+
 
   return (
     <Box>
@@ -245,34 +366,7 @@ export function PaperListPage() {
           {previewLoading ? (
             <Box sx={{ textAlign: 'center', py: 4 }}><CircularProgress /></Box>
           ) : (
-            previewPaper?.questions?.map((q: any) => {
-              const opts = q.options
-                ? typeof q.options === 'string' ? JSON.parse(q.options) : q.options
-                : null
-              return (
-                <Box key={q.id} sx={{ mb: 3 }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Typography variant="body1" fontWeight="bold">
-                      第{q.order_num}题 [{q.type === 'choice' ? '选择题' : q.type === 'fill' ? '填空题' : '简答题'}]
-                      {q.subject && ` [${SUBJECT_MAP[q.subject as keyof typeof SUBJECT_MAP] || q.subject}]`}（{q.score}分）
-                    </Typography>
-                    <IconButton size="small" onClick={() => setEditingQuestion(q)} title="编辑题目">
-                      <EditIcon fontSize="small" />
-                    </IconButton>
-                  </Box>
-                  <QuestionContent content={q.content} />
-                  {opts && (
-                    <Box sx={{ mt: 1, pl: 2 }}>
-                      {opts.map((opt: any) => (
-                        <Typography key={opt.label} variant="body2">
-                          {opt.label}. {opt.text}
-                        </Typography>
-                      ))}
-                    </Box>
-                  )}
-                </Box>
-              )
-            })
+            renderPreviewQuestions()
           )}
         </DialogContent>
         <DialogActions>
@@ -294,7 +388,7 @@ export function PaperListPage() {
       <QuestionEditDialog
         open={!!editingQuestion}
         question={editingQuestion}
-        onSave={handleSaveQuestionContent}
+        onSave={handleSaveQuestion}
         onClose={() => setEditingQuestion(null)}
       />
     </Box>

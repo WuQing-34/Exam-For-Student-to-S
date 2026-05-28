@@ -31,11 +31,10 @@ import { assignmentModel } from '../models/assignmentModel'
 import { paperModel, Question } from '../models/paperModel'
 import { userModel } from '../models/userModel'
 
-// v1.1: 年级映射（支持新旧格式）
+// v1.2: 年级映射（支持新旧格式）
 const GRADE_MAP: Record<string, string> = {
-  junior1: '初一',
-  junior2: '初二',
-  junior3: '初三',
+  junior2: '新初二',
+  junior3: '新初三',
   G1: '初一',
   G2: '初二',
   G3: '初三',

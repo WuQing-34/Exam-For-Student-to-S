@@ -40,7 +40,6 @@ const SUBJECT_ORDER_MAP: Record<string, number> = {
 }
 
 const GRADE_SUBJECTS: Record<string, string[]> = {
-  junior1: ['chinese', 'math', 'english', 'physics'],
   junior2: ['chinese', 'math', 'english', 'physics'],
   junior3: ['chinese', 'math', 'english', 'physics', 'chemistry'],
 }

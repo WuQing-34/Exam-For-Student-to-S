@@ -6,14 +6,39 @@ import { getPool } from '../../models/db'
 import { paperService } from '../../services/paperService'
 import { assignmentService } from '../../services/assignmentService'
 import { paperModel } from '../../models/paperModel'
-import { apiResponse, errorResponse } from '../../utils/helpers'
+import { apiResponse, errorResponse, normalizeOptions } from '../../utils/helpers'
 
 const router = Router()
 
 /**
- * PUT /api/admin/questions/:id/content
- * 更新题目内容（含图片标记）
+ * PUT /api/admin/questions/:id
+ * 更新题目内容及选项（含图片标记）
  */
+router.put('/questions/:id', verifyJWT, roleGuard('admin'), async (req, res) => {
+  try {
+    const id = parseInt(req.params.id)
+    const { content, options } = req.body
+
+    if (!content) {
+      res.status(400).json(errorResponse(1000, '题目内容不能为空'))
+      return
+    }
+
+    const pool = getPool()
+    const optionsJson = options != null ? JSON.stringify(options) : null
+    await pool.execute(
+      'UPDATE question SET content = ?, options = ? WHERE id = ?',
+      [content, optionsJson, id]
+    )
+
+    res.json(apiResponse(null, '更新成功'))
+  } catch (e: unknown) {
+    const err = e as Error
+    res.status(500).json(errorResponse(1000, err.message))
+  }
+})
+
+// 保留旧路由兼容
 router.put('/questions/:id/content', verifyJWT, roleGuard('admin'), async (req, res) => {
   try {
     const id = parseInt(req.params.id)
@@ -142,12 +167,18 @@ router.get('/:id', verifyJWT, async (req, res) => {
     const questions = await paperModel.findQuestionsByPaperId(id)
     const sections = await paperModel.findSectionsByPaperId(id)
 
+    // 标准化 options 格式
+    const normalizedQuestions = questions.map(q => ({
+      ...q,
+      options: normalizeOptions(q.options),
+    }))
+
     res.json(apiResponse({
       paper: {
         ...paper,
         subjects_included: paper.subjects_included ? JSON.parse(paper.subjects_included) : undefined,
       },
-      questions,
+      questions: normalizedQuestions,
       sections,
     }))
   } catch (e: unknown) {
@@ -172,8 +203,11 @@ router.get('/:id/preview', verifyJWT, async (req, res) => {
     const questions = await paperModel.findQuestionsByPaperId(id)
     const sections = await paperModel.findSectionsByPaperId(id)
 
-    // 移除 correct_answer 字段
-    const questionsWithoutAnswer = questions.map(({ correct_answer: _, ...q }) => q)
+    // 移除 correct_answer 字段，并标准化 options
+    const questionsWithoutAnswer = questions.map(({ correct_answer: _, options, ...q }) => ({
+      ...q,
+      options: normalizeOptions(options),
+    }))
 
     res.json(apiResponse({
       paper: {

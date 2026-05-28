@@ -8,12 +8,13 @@ import {
 import SendIcon from '@mui/icons-material/Send'
 import { studentExamApi } from '../../api/exam'
 import { SUBJECT_MAP } from '../../types'
+import { QuestionContent } from '../../components/ui/QuestionContent'
 
 interface Question {
   id: number
   type: string
   content: string
-  options: Array<{ label: string; text: string }> | null
+  options: Array<{ label: string; text: string; image?: string }> | null
 }
 
 export function ExamPage() {
@@ -236,7 +237,7 @@ export function ExamPage() {
             <Typography variant="subtitle2" color="primary" sx={{ mb: 0.5 }}>
               第 {idx + 1} 题 ({q.type === 'choice' ? '选择题' : '填空题'})
             </Typography>
-            <Typography variant="body1" sx={{ mb: 2, fontWeight: 500 }}>{q.content}</Typography>
+            <QuestionContent content={q.content} sx={{ mb: 2, fontWeight: 500 }} />
 
             {q.type === 'choice' && q.options ? (
               <FormControl component="fieldset">
@@ -249,7 +250,16 @@ export function ExamPage() {
                       key={opt.label}
                       value={opt.label}
                       control={<Radio />}
-                      label={`${opt.label}. ${opt.text}`}
+                      label={
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <span>{opt.label}. {opt.text}</span>
+                          {opt.image && (
+                            <img src={opt.image} alt={opt.label}
+                              style={{ maxWidth: 200, maxHeight: 120, border: '1px solid #e0e0e0', borderRadius: 4 }}
+                            />
+                          )}
+                        </Box>
+                      }
                     />
                   ))}
                 </RadioGroup>

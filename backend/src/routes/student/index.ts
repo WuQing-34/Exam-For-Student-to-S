@@ -1,11 +1,11 @@
 import { Router } from 'express'
 import { v4 as uuidv4 } from 'uuid'
+import { RowDataPacket } from 'mysql2'
 import { verifyStudentSession, setStudentSession } from '../../middlewares/auth'
 import { getPool } from '../../models/db'
 import { userModel } from '../../models/userModel'
-import { questionBankModel } from '../../models/questionBankModel'
 import { studentExamModel } from '../../models/studentExamModel'
-import { apiResponse, errorResponse, calcScoreRate } from '../../utils/helpers'
+import { apiResponse, errorResponse, calcScoreRate, normalizeOptions } from '../../utils/helpers'
 
 const router = Router()
 
@@ -229,27 +229,86 @@ router.post('/exams/start', verifyStudentSession, async (req, res) => {
       return
     }
 
-    // 检查题库是否足够
-    const choiceCount = await questionBankModel.countBySubject(subject, 'choice')
-    const fillCount = await questionBankModel.countBySubject(subject, 'fill')
-    if (choiceCount < 5 || fillCount < 5) {
-      res.status(400).json(errorResponse(1000, `该科目题库不足（需选择题≥5、填空题≥5，当前选择${choiceCount}、填空${fillCount}）`))
+    // 查找学生被分配的试卷（按年级+科目匹配）
+    const pool = getPool()
+
+    // 先查单科目试卷
+    const [assignRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT a.paper_id, p.title, p.total_score, p.subject as paper_subject
+       FROM assignment a
+       JOIN paper p ON p.id = a.paper_id
+       WHERE a.student_id = ? AND p.grade = ? AND p.subject = ?
+       ORDER BY a.assigned_at DESC LIMIT 1`,
+      [session.studentId, student.grade, subject]
+    )
+
+    // 没匹配到单科，再查 multi 试卷
+    let paperId: number
+    let totalScore: number
+
+    if (assignRows.length > 0) {
+      const row = assignRows[0] as { paper_id: number; total_score: number }
+      paperId = row.paper_id
+      totalScore = row.total_score
+    } else {
+      const [multiRows] = await pool.execute<RowDataPacket[]>(
+        `SELECT a.paper_id, p.title, p.total_score, p.subjects_included
+         FROM assignment a
+         JOIN paper p ON p.id = a.paper_id
+         WHERE a.student_id = ? AND p.grade = ? AND p.subject = 'multi'
+         ORDER BY a.assigned_at DESC LIMIT 1`,
+        [session.studentId, student.grade]
+      )
+
+      if (!multiRows.length) {
+        res.status(400).json(errorResponse(1000, '您还没有被分配试卷，请联系辅导老师'))
+        return
+      }
+
+      const multiRow = multiRows[0] as { paper_id: number; total_score: number; subjects_included: string | null }
+      let subjectsIncluded: string[] = []
+      if (multiRow.subjects_included) {
+        try { subjectsIncluded = JSON.parse(multiRow.subjects_included) } catch { subjectsIncluded = [] }
+      }
+      if (!subjectsIncluded.includes(subject)) {
+        res.status(400).json(errorResponse(1000, '您还没有被分配该科目的试卷，请联系辅导老师'))
+        return
+      }
+      paperId = multiRow.paper_id
+      totalScore = multiRow.total_score
+    }
+
+    // 从试卷中获取该科目的题目
+    const [questionRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT id, type, content, options, correct_answer, score, order_num, subject
+       FROM question
+       WHERE paper_id = ? AND (subject = ? OR subject IS NULL)
+       ORDER BY order_num`,
+      [paperId, subject]
+    )
+
+    if (!questionRows.length) {
+      res.status(400).json(errorResponse(1000, '该试卷暂无题目，请联系管理员'))
       return
     }
 
-    // 随机抽题：5 选择 + 5 填空
-    const choices = await questionBankModel.randomPick(subject, 'choice', 5)
-    const fills = await questionBankModel.randomPick(subject, 'fill', 5)
-    const questions = [...choices, ...fills]
+    const questions = questionRows.map(row => ({
+      id: row.id,
+      type: row.type,
+      content: row.content,
+      options: normalizeOptions(row.options),
+      correct_answer: row.correct_answer,
+      score: row.score,
+      order_num: row.order_num,
+      subject: row.subject,
+    }))
+
+    // 对于 multi 试卷，totalScore 用实际题目分数之和
+    const actualTotalScore = questions.reduce((sum, q) => sum + (q.score || 0), 0)
+    const finalScore = actualTotalScore > 0 ? actualTotalScore : totalScore
 
     // 去掉正确答案后返回
-    const questionsWithoutAnswer = questions.map(({ correct_answer: _, options, ...q }) => ({
-      ...q,
-      type: q.type,
-      id: q.id,
-      content: q.content,
-      options: options ? JSON.parse(options) : null,
-    }))
+    const questionsWithoutAnswer = questions.map(({ correct_answer: _, ...q }) => q)
 
     // 如果已有 in_progress 记录，返回存储的题目（复用已有考试）
     if (existing && existing.status === 'in_progress') {
@@ -263,7 +322,7 @@ router.post('/exams/start', verifyStudentSession, async (req, res) => {
         type: q.type,
         id: q.id,
         content: q.content,
-        options: options ? (typeof options === 'string' ? JSON.parse(options as string) : options) : null,
+        options: normalizeOptions(options),
       }))
 
       res.json(apiResponse({
@@ -284,7 +343,7 @@ router.post('/exams/start', verifyStudentSession, async (req, res) => {
       session.studentId,
       subject,
       JSON.stringify(questionsStored),
-      100
+      finalScore
     )
 
     res.json(apiResponse({
@@ -408,7 +467,7 @@ router.get('/exams/:id', verifyStudentSession, async (req, res) => {
       const { correct_answer, ...rest } = q
       return {
         ...rest,
-        options: q.options ? (typeof q.options === 'string' ? JSON.parse(q.options as string) : q.options) : null,
+        options: normalizeOptions(q.options),
       }
     })
 

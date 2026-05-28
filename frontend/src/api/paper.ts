@@ -1,6 +1,6 @@
 import api from './index'
 import type { ApiResponse, PaginationResult } from '../types'
-import type { Paper, Question, SubjectSection } from '../types/paper'
+import type { Paper, Question, QuestionOption, SubjectSection } from '../types/paper'
 
 export interface PaperWithCount extends Paper {
   questionCount: number
@@ -67,7 +67,12 @@ export const paperApi = {
     return api.delete<ApiResponse<{ count: number }>>('/admin/papers/batch', { data: { ids } })
   },
 
-  /** 更新题目内容（含图片标记） */
+  /** 更新题目（含内容和选项图片） */
+  updateQuestion(questionId: number, content: string, options?: QuestionOption[] | null) {
+    return api.put<ApiResponse<null>>(`/admin/papers/questions/${questionId}`, { content, options })
+  },
+
+  /** 更新题目内容（含图片标记） — 兼容旧接口 */
   updateQuestionContent(questionId: number, content: string) {
     return api.put<ApiResponse<null>>(`/admin/papers/questions/${questionId}/content`, { content })
   },

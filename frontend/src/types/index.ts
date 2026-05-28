@@ -5,8 +5,8 @@
 // ========== 枚举值 ==========
 export type AdminRole = 'admin' | 'short_term_tutor'
 
-// v1.1: 年级枚举迁移 G1/G2/G3 → junior1/junior2/junior3
-export type Grade = 'junior1' | 'junior2' | 'junior3'
+// v1.2: 年级改为新初二/新初三
+export type Grade = 'junior2' | 'junior3'
 // 向后兼容旧数据
 export type LegacyGrade = 'G1' | 'G2' | 'G3'
 
@@ -16,11 +16,10 @@ export type AssignmentStatus = 'pending' | 'in_progress' | 'completed'
 export type ExamStatus = 'in_progress' | 'submitted' | 'graded'
 
 // ========== 枚举中文映射 ==========
-// v1.1: 更新年级映射
+// v1.2: 更新年级映射
 export const GRADE_MAP: Record<Grade, string> = {
-  junior1: '初一',
-  junior2: '初二',
-  junior3: '初三',
+  junior2: '新初二',
+  junior3: '新初三',
 }
 
 // 向后兼容旧年级映射
@@ -32,9 +31,8 @@ export const LEGACY_GRADE_MAP: Record<LegacyGrade, string> = {
 
 // 合并映射（支持新旧两种格式）
 export const ALL_GRADE_MAP: Record<string, string> = {
-  junior1: '初一',
-  junior2: '初二',
-  junior3: '初三',
+  junior2: '新初二',
+  junior3: '新初三',
   G1: '初一',
   G2: '初二',
   G3: '初三',
@@ -63,9 +61,8 @@ export const SUBJECT_ORDER: Record<Subject, number> = {
   chemistry: 5,
 }
 
-// v1.1: 各年级对应科目（初三额外有化学）
+// v1.2: 各年级对应科目（新初二=原初二科目，新初三=原初三含化学）
 export const GRADE_SUBJECTS: Record<Grade, Subject[]> = {
-  junior1: ['chinese', 'math', 'english', 'physics'],
   junior2: ['chinese', 'math', 'english', 'physics'],
   junior3: ['chinese', 'math', 'english', 'physics', 'chemistry'],
 }
@@ -112,11 +109,11 @@ export const ERROR_CODES = {
 
 // ========== 年级转换工具 ==========
 /**
- * 将旧格式年级（G1/G2/G3）转换为新格式（junior1/junior2/junior3）
+ * 将旧格式年级（G1/G2/G3）转换为新格式（junior2/junior3）
  */
 export function normalizeGrade(grade: string): Grade {
   const map: Record<string, Grade> = {
-    G1: 'junior1',
+    G1: 'junior2',
     G2: 'junior2',
     G3: 'junior3',
   }

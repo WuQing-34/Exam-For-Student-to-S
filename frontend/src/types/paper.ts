@@ -21,6 +21,7 @@ export interface Paper {
 export interface QuestionOption {
   label: string
   text: string
+  image?: string  // 选项配图 URL
 }
 
 // v1.1: 新增可选 subject 字段

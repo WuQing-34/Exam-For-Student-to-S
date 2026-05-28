@@ -86,7 +86,7 @@ export function UserListPage() {
   }, [page, grade, keyword])
 
   const handleOpenEdit = (student?: any) => {
-    setEditForm(student ? { name: student.name, phone: student.phone, grade: student.grade } : { name: '', phone: '', grade: 'junior1' })
+    setEditForm(student ? { name: student.name, phone: student.phone, grade: student.grade } : { name: '', phone: '', grade: 'junior2' })
     setEditDialog({ open: true, student })
   }
 
@@ -148,7 +148,7 @@ export function UserListPage() {
 
   const downloadTemplate = () => {
     const headers = ['姓名', '手机号', '年级']
-    const rows = [['张三', '13800138000', '初一']]
+    const rows = [['张三', '13800138000', '新初二']]
     const csv = [headers, ...rows].map(r => r.join(',')).join('\n')
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' })
     const url = URL.createObjectURL(blob)

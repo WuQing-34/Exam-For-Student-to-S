@@ -123,8 +123,9 @@ router.post('/import', verifyJWT, upload.single('file'), async (req, res) => {
     const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets[sheetName]) as unknown[]
 
     const GRADE_MAP: Record<string, string> = {
-      '初一': 'junior1', '初二': 'junior2', '初三': 'junior3',
-      'G1': 'junior1', 'G2': 'junior2', 'G3': 'junior3',
+      '新初二': 'junior2', '新初三': 'junior3',
+      '初二': 'junior2', '初三': 'junior3',
+      'G1': 'junior2', 'G2': 'junior2', 'G3': 'junior3',
     }
 
     const records = (rows as Record<string, unknown>[])
@@ -171,8 +172,9 @@ router.put('/:id', verifyJWT, async (req, res) => {
     }
 
     const GRADE_MAP: Record<string, string> = {
-      '初一': 'junior1', '初二': 'junior2', '初三': 'junior3',
-      'G1': 'junior1', 'G2': 'junior2', 'G3': 'junior3',
+      '新初二': 'junior2', '新初三': 'junior3',
+      '初二': 'junior2', '初三': 'junior3',
+      'G1': 'junior2', 'G2': 'junior2', 'G3': 'junior3',
     }
 
     const normalizedGrade = GRADE_MAP[grade] || grade
