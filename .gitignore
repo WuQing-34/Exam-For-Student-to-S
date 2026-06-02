@@ -11,3 +11,8 @@ tmp/
 .env
 .env.local
 .env.*.local
+.venv-everos/
+.playwright-cli/
+*.docx
+*test*.ts
+*debug*.ts

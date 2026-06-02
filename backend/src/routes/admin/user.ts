@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { verifyJWT } from '../../middlewares/auth'
 import { upload } from '../../middlewares/upload'
 import { userModel } from '../../models/userModel'
+import { assignmentModel } from '../../models/assignmentModel'
 import { apiResponse, errorResponse } from '../../utils/helpers'
 import * as XLSX from 'xlsx'
 
@@ -99,6 +100,12 @@ router.post('/', verifyJWT, async (req, res) => {
       subjects: subjects ? JSON.stringify(subjects) : undefined,
       sales_id: salesId ?? undefined,
     })
+
+    // 自动分配匹配的试卷
+    if (subjects && Array.isArray(subjects) && subjects.length > 0) {
+      await assignmentModel.autoAssignForStudent(id, grade, subjects)
+    }
+
     const student = await userModel.findById(id)
     res.json(apiResponse(student, '创建成功'))
   } catch (e: unknown) {

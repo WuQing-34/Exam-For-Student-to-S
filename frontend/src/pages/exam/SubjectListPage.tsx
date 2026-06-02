@@ -191,7 +191,7 @@ export function SubjectListPage() {
                   disabled={startingSubject === s.subject}
                   onClick={() => {
                     if (isSubmitted) {
-                      navigate(`/exam/${s.subject}`, { state: { examId: s.examId } })
+                      navigate(`/review/${s.subject}`)
                     } else {
                       handleStartExam(s.subject)
                     }
@@ -206,7 +206,7 @@ export function SubjectListPage() {
                 >
                   {startingSubject === s.subject ? (
                     <CircularProgress size={20} />
-                  ) : isSubmitted ? '查看' : isInProgress ? '继续' : '开始'}
+                  ) : isSubmitted ? '查看答卷' : isInProgress ? '继续' : '开始'}
                 </Button>
               </Card>
             </Fade>

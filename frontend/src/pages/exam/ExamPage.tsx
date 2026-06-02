@@ -10,11 +10,28 @@ import { studentExamApi } from '../../api/exam'
 import { SUBJECT_MAP } from '../../types'
 import { QuestionContent } from '../../components/ui/QuestionContent'
 
+/** 从题目内容中检测填空数量（后备机制）
+ *  以连续下划线 ____ 为检测标准，支持多种格式：
+ *  - ①________  圆圈序号+下划线
+ *  - |文本|________|  表格单元格下划线
+ *  - (________)  括号内下划线
+ *  - 风、________、颂  文本间下划线
+ *  排除：HTML <u>标签内的下划线（题目自带的装饰下划线）
+ */
+function detectBlankCountFromContent(content: string): number {
+  // 1. 先移除 HTML <u>...</u> 标签内的内容（避免误检测题目自带的下划线）
+  const withoutUTags = content.replace(/<u>[^<]*<\/u>/gi, '')
+  // 2. 匹配连续下划线（至少3个，避免误匹配单下划线）
+  const matches = withoutUTags.match(/_{3,}/g)
+  return matches && matches.length > 1 ? matches.length : 1
+}
+
 interface Question {
   id: number
   type: string
   content: string
   options: Array<{ label: string; text: string; image?: string }> | null
+  blankCount?: number  // 填空题空格数（仅多空题有值）
 }
 
 export function ExamPage() {
@@ -59,10 +76,19 @@ export function ExamPage() {
         }
         setLoadedExamId(examId)
       } else {
-        setError(res.data.message || '考试记录不存在')
+        // 考试不存在（如被删除）→ 自动跳回科目列表
+        console.warn('考试记录不存在，跳回科目列表')
+        navigate('/subjects', { replace: true })
+        return
       }
     } catch (err: unknown) {
-      const e = err as { message?: string }
+      const e = err as { message?: string; status?: number }
+      // 404 也跳回科目列表
+      if (e.status === 404 || e.message?.includes('404') || e.message?.includes('不存在')) {
+        console.warn('考试404，跳回科目列表')
+        navigate('/subjects', { replace: true })
+        return
+      }
       setError(e.message || '加载考试失败')
     } finally {
       setLoading(false)
@@ -147,8 +173,25 @@ export function ExamPage() {
     })
   }
 
+  // 多空题：按空格索引更新其中一个空，合并成分隔符拼接的字符串存储
+  const handleBlankChange = (questionId: number, blankIdx: number, blankCount: number, value: string) => {
+    const current = answers.find(a => a.questionId === questionId)?.answer ?? ''
+    const parts = current ? current.split('|||') : Array(blankCount).fill('')
+    // 补齐长度
+    while (parts.length < blankCount) parts.push('')
+    parts[blankIdx] = value
+    handleAnswerChange(questionId, parts.join('|||'))
+  }
+
   const getAnswer = (questionId: number) => {
     return answers.find(a => a.questionId === questionId)?.answer ?? ''
+  }
+
+  // 多空题：获取某一空的当前值
+  const getBlankAnswer = (questionId: number, blankIdx: number) => {
+    const full = getAnswer(questionId)
+    if (!full) return ''
+    return full.split('|||')[blankIdx] ?? ''
   }
 
   const answeredCount = answers.filter(a => a.answer.trim()).length
@@ -237,42 +280,64 @@ export function ExamPage() {
             <Typography variant="subtitle2" color="primary" sx={{ mb: 0.5 }}>
               第 {idx + 1} 题 ({q.type === 'choice' ? '选择题' : '填空题'})
             </Typography>
-            <QuestionContent content={q.content} sx={{ mb: 2, fontWeight: 500 }} />
 
             {q.type === 'choice' && q.options ? (
-              <FormControl component="fieldset">
-                <RadioGroup
-                  value={getAnswer(q.id)}
-                  onChange={e => handleAnswerChange(q.id, e.target.value)}
-                >
-                  {q.options.map(opt => (
-                    <FormControlLabel
-                      key={opt.label}
-                      value={opt.label}
-                      control={<Radio />}
-                      label={
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <span>{opt.label}. {opt.text}</span>
-                          {opt.image && (
-                            <img src={opt.image} alt={opt.label}
-                              style={{ maxWidth: 200, maxHeight: 120, border: '1px solid #e0e0e0', borderRadius: 4 }}
-                            />
-                          )}
-                        </Box>
-                      }
-                    />
-                  ))}
-                </RadioGroup>
-              </FormControl>
-            ) : (
-              <TextField
-                fullWidth
-                size="small"
-                value={getAnswer(q.id)}
-                onChange={e => handleAnswerChange(q.id, e.target.value)}
-                placeholder="请输入答案"
-              />
-            )}
+              <>
+                <QuestionContent content={q.content} sx={{ mb: 2, fontWeight: 500 }} />
+                <FormControl component="fieldset">
+                  <RadioGroup
+                    value={getAnswer(q.id)}
+                    onChange={e => handleAnswerChange(q.id, e.target.value)}
+                  >
+                    {q.options.map(opt => (
+                      <FormControlLabel
+                        key={opt.label}
+                        value={opt.label}
+                        control={<Radio />}
+                        label={
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <span>{opt.label}. {opt.text}</span>
+                            {opt.image && (
+                              <img src={opt.image} alt={opt.label}
+                                style={{ maxWidth: 200, maxHeight: 120, border: '1px solid #e0e0e0', borderRadius: 4 }}
+                              />
+                            )}
+                          </Box>
+                        }
+                      />
+                    ))}
+                  </RadioGroup>
+                </FormControl>
+              </>
+            ) : (() => {
+              // 优先用后端返回的 blankCount，否则从内容自动检测
+              const blankCount = q.blankCount && q.blankCount > 1
+                ? q.blankCount
+                : (q.type === 'fill_blank' || q.type === 'fill')
+                  ? detectBlankCountFromContent(q.content)
+                  : 1
+              return blankCount > 1 ? (
+                // 多空题：输入框嵌入题目横线位置
+                <QuestionContent
+                  content={q.content}
+                  blankCount={blankCount}
+                  blankValues={Array.from({ length: blankCount }).map((_, idx) => getBlankAnswer(q.id, idx))}
+                  onBlankChange={(blankIdx, value) => handleBlankChange(q.id, blankIdx, blankCount, value)}
+                  sx={{ fontWeight: 500 }}
+                />
+              ) : (
+                <>
+                  <QuestionContent content={q.content} sx={{ mb: 2, fontWeight: 500 }} />
+                  <TextField
+                    fullWidth
+                    size="small"
+                    value={getAnswer(q.id)}
+                    onChange={e => handleAnswerChange(q.id, e.target.value)}
+                    placeholder="请输入答案"
+                  />
+                </>
+              )
+            })()}
           </Card>
         ))}
       </Box>

@@ -128,6 +128,30 @@ export const studentExamApi = {
       submittedAt: string
     }>>(`/student/exams/${examId}/result`)
   },
+
+  /** 查看已提交考试答卷（含正确答案对比） */
+  reviewExam(examId: number) {
+    return api.get<ApiResponse<{
+      examId: number
+      subject: string
+      score: number
+      fullScore: number
+      scoreRate: number
+      sClassQualified: boolean
+      submittedAt: string
+      questions: Array<{
+        id: number
+        type: string
+        content: string
+        options: Array<{ label: string; text: string; image?: string }> | null
+        blankCount?: number
+        correctAnswer: string
+        studentAnswer: string
+        isCorrect: boolean
+        score: number
+      }>
+    }>>(`/student/exams/${examId}/review`)
+  },
 }
 
 // ========== v2.0 管理端 API ==========

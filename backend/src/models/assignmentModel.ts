@@ -93,4 +93,56 @@ export const assignmentModel = {
     await pool.execute('DELETE FROM assignment WHERE student_id = ?', [studentId])
     return true
   },
+
+  /**
+   * 新学生注册时，自动分配匹配的试卷
+   * @returns { assigned: 新增分配数, skipped: 已存在跳过数 }
+   */
+  async autoAssignForStudent(
+    studentId: number,
+    grade: string,
+    subjects: string[],
+  ): Promise<{ assigned: number; skipped: number }> {
+    const pool = getPool()
+    let assigned = 0
+    let skipped = 0
+
+    if (subjects.length === 0) return { assigned, skipped }
+
+    // 查询同年级所有试卷
+    const [paperRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT id, subject, subjects_included FROM paper WHERE grade = ?`,
+      [grade],
+    ) as [Array<{ id: number; subject: string; subjects_included: string | null }>, unknown]
+
+    const subjectSet = new Set(subjects)
+
+    for (const paper of paperRows) {
+      let shouldAssign = false
+
+      if (paper.subject === 'multi') {
+        // 综合试卷：subjects_included 中包含学生任一科目则分配
+        if (paper.subjects_included) {
+          try {
+            const included: string[] = JSON.parse(paper.subjects_included)
+            shouldAssign = subjects.some(s => included.includes(s))
+          } catch { /* JSON 解析失败则跳过 */ }
+        }
+      } else {
+        // 单科试卷：subject 在学生科目列表中则分配
+        shouldAssign = subjectSet.has(paper.subject)
+      }
+
+      if (shouldAssign) {
+        const result = await assignmentModel.create({
+          student_id: studentId,
+          paper_id: paper.id,
+        })
+        if (result !== null) assigned++
+        else skipped++
+      }
+    }
+
+    return { assigned, skipped }
+  },
 }

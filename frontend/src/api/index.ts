@@ -24,8 +24,13 @@ instance.interceptors.response.use(
     if (error.response) {
       const { status, data } = error.response as AxiosResponse<ApiResponse>
       if (status === 401) {
-        storage.remove('token')
-        window.location.href = '/admin/login'
+        // 只对管理端接口的 401 做跳转，学生端登录失败不应跳走
+        const url = error.config?.url || ''
+        const isAdminApi = url.startsWith('/admin/')
+        if (isAdminApi) {
+          storage.remove('token')
+          window.location.href = '/admin/login'
+        }
       }
       // 统一错误处理：reject with the ApiResponse data
       return Promise.reject(data)

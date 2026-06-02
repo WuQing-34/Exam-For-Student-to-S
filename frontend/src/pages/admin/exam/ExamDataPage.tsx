@@ -62,7 +62,7 @@ export function ExamDataPage() {
     finally { setDetailLoading(false) }
   }
 
-  const answerMap = new Map((detail?.studentAnswers || []).map((a: any) => [a.questionId, a.answer]))
+  const answerMap = new Map((detail?.studentAnswers || []).map((a: any) => [a.questionId, a]))
 
   return (
     <Box>

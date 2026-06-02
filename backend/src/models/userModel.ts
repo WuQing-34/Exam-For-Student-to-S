@@ -30,6 +30,15 @@ export const userModel = {
     return (rows[0] as Student) ?? null
   },
 
+  async findByPhone(phone: string): Promise<Student | null> {
+    const pool = getPool()
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      'SELECT * FROM student WHERE phone = ?',
+      [phone]
+    )
+    return (rows[0] as Student) ?? null
+  },
+
   async findAll(params: {
     grade?: string
     keyword?: string
@@ -124,9 +133,9 @@ export const userModel = {
 
     for (const record of records) {
       try {
-        const exist = await userModel.findByNamePhone(record.name, record.phone)
+        const exist = await userModel.findByPhone(record.phone)
         if (exist) {
-          errors.push(`重复：${record.name} ${record.phone}`)
+          errors.push(`手机号已注册：${record.name} ${record.phone}`)
           continue
         }
         const id = await userModel.create(record)

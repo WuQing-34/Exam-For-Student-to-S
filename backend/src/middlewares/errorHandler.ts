@@ -12,9 +12,10 @@ export function errorHandler(
   console.error('【错误】', err.message)
   console.error(err.stack)
 
+  const isProduction = process.env.NODE_ENV === 'production'
   res.status(500).json({
     code: 1000,
-    message: '服务器内部错误：' + err.message,
+    message: isProduction ? '服务器内部错误' : '服务器内部错误：' + err.message,
     data: null,
   })
 }

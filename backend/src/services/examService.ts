@@ -2,6 +2,7 @@ import { paperModel } from '../models/paperModel'
 import { examModel } from '../models/examModel'
 import { assignmentModel } from '../models/assignmentModel'
 import { Question } from '../models/paperModel'
+import { compareAnswers } from '../utils/helpers'
 
 export interface GradingResult {
   score: number
@@ -41,17 +42,11 @@ const SUBJECT_DISPLAY_MAP: Record<string, string> = {
 }
 
 export const examService = {
-  normalizeAnswer(answer: string): string {
-    return answer.trim().toLowerCase()
-  },
-
   gradeQuestion(answer: string, question: Question): number {
-    const normalized = this.normalizeAnswer(answer)
-    const correct = this.normalizeAnswer(question.correct_answer)
-    if (question.type === 'essay') {
-      return normalized === correct ? question.score : 0
+    if (compareAnswers(answer, question.correct_answer, question.id, question.type)) {
+      return question.score
     }
-    return normalized === correct ? question.score : 0
+    return 0
   },
 
   async gradeAnswers(

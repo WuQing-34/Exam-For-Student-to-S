@@ -28,10 +28,16 @@ export function RegisterPage() {
 
   useEffect(() => {
     studentExamApi.getSales().then(res => {
+      console.log('[Register] getSales response:', res.data)
       if (res.data.code === 0 && res.data.data) {
+        console.log('[Register] salesList:', res.data.data.list)
         setSalesList(res.data.data.list)
+      } else {
+        console.warn('[Register] getSales unexpected response:', res.data)
       }
-    }).catch(() => {}).finally(() => setSalesLoading(false))
+    }).catch((err) => {
+      console.error('[Register] getSales error:', err)
+    }).finally(() => setSalesLoading(false))
   }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -39,6 +45,10 @@ export function RegisterPage() {
     setError('')
     if (!form.name || !form.phone || !form.grade) {
       setError('请填写完整信息（微信昵称/手机号/年级）')
+      return
+    }
+    if (!/^1\d{10}$/.test(form.phone)) {
+      setError('请输入正确的11位手机号')
       return
     }
     if (form.subjects.length === 0) {

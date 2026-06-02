@@ -4,12 +4,19 @@ import path from 'path'
 // 加载 .env 文件（如果存在）
 dotenv.config()
 
+const nodeEnv = process.env.NODE_ENV || 'development'
+
+// 生产环境强制检查 JWT_SECRET
+if (nodeEnv === 'production' && !process.env.JWT_SECRET) {
+  throw new Error('FATAL: JWT_SECRET environment variable must be set in production')
+}
+
 export const config = {
   port: parseInt(process.env.PORT || '3001', 10),
   jwtSecret: process.env.JWT_SECRET || 'default-secret-key',
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
   uploadDir: process.env.UPLOAD_DIR || path.join(__dirname, '../../uploads'),
-  nodeEnv: process.env.NODE_ENV || 'development',
+  nodeEnv,
   // MySQL 配置
   mysql: {
     host: process.env.MYSQL_HOST || '127.0.0.1',

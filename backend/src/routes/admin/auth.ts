@@ -63,6 +63,8 @@ router.post('/login', async (req, res) => {
     // 设置 HttpOnly Cookie
     res.cookie('token', result.token, {
       httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7天
       path: '/',
     })

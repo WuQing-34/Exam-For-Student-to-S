@@ -67,31 +67,37 @@ export const studentExamModel = {
 
   async submit(id: number, answersJson: string, score: number): Promise<boolean> {
     const pool = getPool()
-    await pool.execute(
-      `UPDATE student_exam SET answers_json = ?, score = ?, status = 'submitted', submitted_at = CURRENT_TIMESTAMP WHERE id = ?`,
+    const [result] = await pool.execute<ResultSetHeader>(
+      `UPDATE student_exam
+       SET answers_json = ?, score = ?, status = 'submitted', submitted_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND status = 'in_progress'`,
       [answersJson, score, id]
     )
-    return true
+    return result.affectedRows > 0
   },
 
   async findResults(params: {
-    subject?: string; studentId?: number; page?: number; pageSize?: number
+    subject?: string; studentId?: number; salesId?: number; page?: number; pageSize?: number
   }): Promise<{ list: StudentExam[]; total: number }> {
     const pool = getPool()
     const page = params.page ?? 1
     const pageSize = params.pageSize ?? 50
     const offset = (page - 1) * pageSize
 
-    let where = "WHERE status = 'submitted'"
+    let where = "WHERE se.status = 'submitted'"
     const values: (string | number)[] = []
-    if (params.subject) { where += ' AND subject = ?'; values.push(params.subject) }
-    if (params.studentId !== undefined) { where += ' AND student_id = ?'; values.push(params.studentId) }
+    if (params.subject) { where += ' AND se.subject = ?'; values.push(params.subject) }
+    if (params.studentId !== undefined) { where += ' AND se.student_id = ?'; values.push(params.studentId) }
+    if (params.salesId !== undefined) { where += ' AND s.sales_id = ?'; values.push(params.salesId) }
 
-    const [countRows] = await pool.execute<RowDataPacket[]>(`SELECT COUNT(*) as total FROM student_exam ${where}`, values)
+    const [countRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT COUNT(*) as total FROM student_exam se JOIN student s ON se.student_id = s.id ${where}`,
+      values
+    )
     const total = (countRows[0] as { total: number }).total
 
     const [rows] = await pool.execute<RowDataPacket[]>(
-      `SELECT * FROM student_exam ${where} ORDER BY submitted_at DESC LIMIT ${pageSize} OFFSET ${offset}`,
+      `SELECT se.* FROM student_exam se JOIN student s ON se.student_id = s.id ${where} ORDER BY se.submitted_at DESC LIMIT ${pageSize} OFFSET ${offset}`,
       values
     )
     return { list: rows as StudentExam[], total }

@@ -18,9 +18,13 @@ router.get('/', verifyJWT, async (req, res) => {
   try {
     const { subject, studentId, page, pageSize } = req.query
 
+    // 短期班辅导只能看自己学生的考试数据
+    const salesId = req.admin?.role === 'short_term_tutor' ? req.admin!.id : undefined
+
     const result = await studentExamModel.findResults({
       subject: subject as string,
       studentId: studentId ? parseInt(studentId as string) : undefined,
+      salesId,
       page: parseInt(page as string) || 1,
       pageSize: parseInt(pageSize as string) || 20,
     })
@@ -75,6 +79,12 @@ router.get('/:id', verifyJWT, async (req, res) => {
     }
 
     const student = await userModel.findById(record.student_id)
+
+    // 短期班辅导只能查看自己学生的考试详情
+    if (req.admin?.role === 'short_term_tutor' && student?.sales_id !== req.admin.id) {
+      res.status(403).json(errorResponse(1002, '无权查看该考试记录'))
+      return
+    }
     let questions: unknown[] = []
     if (record.questions_json) {
       try { questions = JSON.parse(record.questions_json) } catch { questions = [] }

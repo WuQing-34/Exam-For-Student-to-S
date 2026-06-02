@@ -53,6 +53,10 @@ export function LoginPage() {
       setError('请输入微信昵称和手机号')
       return
     }
+    if (!/^1\d{10}$/.test(form.phone)) {
+      setError('请输入正确的11位手机号')
+      return
+    }
 
     setLoading(true)
     try {

@@ -57,6 +57,15 @@ async function startServer() {
 
   process.on('SIGTERM', () => gracefulShutdown('SIGTERM'))
   process.on('SIGINT', () => gracefulShutdown('SIGINT'))
+
+  // 捕获未处理的异常和 Promise rejection
+  process.on('uncaughtException', (err) => {
+    console.error('❌ 未捕获异常:', err)
+    console.error(err.stack)
+  })
+  process.on('unhandledRejection', (reason) => {
+    console.error('❌ 未处理的 Promise rejection:', reason)
+  })
 }
 
 startServer().catch(err => {

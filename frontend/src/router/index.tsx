@@ -22,6 +22,7 @@ import { LoginPage as ExamLoginPage } from '../pages/exam/LoginPage'
 import { RegisterPage as ExamRegisterPage } from '../pages/exam/RegisterPage'
 import { SubjectListPage } from '../pages/exam/SubjectListPage'
 import { ExamPage } from '../pages/exam/ExamPage'
+import { ExamReviewPage } from '../pages/exam/ExamReviewPage'
 import { MultiResultPage } from '../pages/exam/MultiResultPage'
 import { ErrorBoundary } from '../components/ui/ErrorBoundary'
 
@@ -84,6 +85,7 @@ export function AppRouter() {
       children: [
         { path: '/subjects', element: <SubjectListPage /> },
         { path: '/exam/:subject', element: <ErrorBoundary><ExamPage /></ErrorBoundary> },
+        { path: '/review/:subject', element: <ExamReviewPage /> },
         { path: '/results', element: <MultiResultPage /> },
       ],
     },
